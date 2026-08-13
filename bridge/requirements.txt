@@ -1,0 +1,4 @@
+bleak>=0.22.0
+pyyaml>=6.0
+watchdog>=4.0
+pyserial>=3.5

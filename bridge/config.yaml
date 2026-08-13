@@ -1,0 +1,24 @@
+device:
+  name: CodexPet
+  service_uuid: CDD4DFFB-2FD0-4F2D-9A87-C7D2535B59E0
+  state_char_uuid: DA3CDABA-E192-460B-ACF3-B2C59C6A3EE0
+  command_char_uuid: 7C9DA1DE-8FE4-4B95-A366-51EA94E3010C
+
+connection:
+  mode: ble
+  scan_timeout: 10
+  reconnect_interval: 5
+
+monitor:
+  interval: 1
+  hook_port: 17384
+  session_dir: ~/.codex/sessions
+  idle_to_sleep_sec: 300
+  heartbeat_interval_sec: 2
+  offline_timeout_sec: 15
+
+display:
+  send_task: true
+
+debug:
+  enabled: false
