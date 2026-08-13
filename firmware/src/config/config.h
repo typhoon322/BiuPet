@@ -24,13 +24,13 @@
 #define PIN_LCD_CS 10
 #endif
 #ifndef PIN_LCD_DC
-#define PIN_LCD_DC 5
+#define PIN_LCD_DC 13
 #endif
 #ifndef PIN_LCD_RST
-#define PIN_LCD_RST 4
+#define PIN_LCD_RST 14
 #endif
 #ifndef PIN_LCD_BL
-#define PIN_LCD_BL 6
+#define PIN_LCD_BL 3
 #endif
 
 #ifndef BLE_DEVICE_NAME

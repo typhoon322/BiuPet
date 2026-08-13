@@ -7,6 +7,7 @@ namespace Display {
     void clear(uint32_t color = 0);
     void setBrightness(uint8_t percent);
     void fillScreen(uint32_t color);
+    void fillRect(int x, int y, int w, int h, uint32_t color);
     int width();
     int height();
 }
