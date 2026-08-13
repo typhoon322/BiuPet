@@ -41,7 +41,7 @@ JSONL_EVENT_TO_STATE = {
     "response_item:custom_tool_call_output": "WORKING",
 }
 
-COMPLETED_HOLD_MS = 3000
+COMPLETED_HOLD_MS = 15000
 SLEEP_AFTER_IDLE_MS = 300000  # 5 min idle -> SLEEP (Phase 5)
 
 StateCallback = Callable[[dict], Coroutine[None, None, None]]
@@ -118,7 +118,12 @@ class CodexMonitor:
             size = path.stat().st_size
         except OSError:
             return
-        offset = self._tracked.get(str(path), size)  # skip history, watch new writes
+        key = str(path)
+        if key not in self._tracked:
+            # first sight: remember current size as baseline, only watch new writes
+            self._tracked[key] = size
+            return
+        offset = self._tracked[key]
         if size < offset:
             offset = 0
         if size == offset:
