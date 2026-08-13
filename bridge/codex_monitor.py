@@ -57,6 +57,7 @@ class CodexMonitor:
         self._session_dir = Path(cfg["monitor"]["session_dir"])
         self._tracked: dict[str, int] = {}  # file -> read offset
         self._completed_at = 0.0
+        self._current_task = ""
 
     def set_callback(self, cb: StateCallback):
         self._cb = cb
@@ -93,7 +94,14 @@ class CodexMonitor:
             return
         self._hook_seen = True
         self._last_activity = time.monotonic()
-        log.info("hook -> %s (event=%s)", state, event)
+        # tool events keep the user's task title instead of overwriting it
+        if event in ("PreToolUse", "PostToolUse") and self._current_task:
+            task = self._current_task
+        else:
+            task = self._extract_hook_task(payload)
+            if task:
+                self._current_task = task
+        log.info("hook -> %s (event=%s task=%s)", state, event, task)
         await self._apply_state(state, source="hook")
 
     def _poll_sessions(self):
@@ -138,6 +146,10 @@ class CodexMonitor:
                 log.debug("jsonl %s -> %s", key, state)
                 if state == "COMPLETED":
                     self._completed_at = time.monotonic()
+                    self._current_task = ""
+                task = self._extract_jsonl_task(rec.get("payload", {}))
+                if task:
+                    self._current_task = task
                 # schedule immediate state application
                 asyncio.get_event_loop().create_task(self._apply_state(state, source="jsonl"))
 
@@ -161,6 +173,53 @@ class CodexMonitor:
                             out.append(day)
         return out
 
+    @staticmethod
+    def _first_line(text: str, limit: int = 48) -> str:
+        text = (text or "").strip()
+        if not text:
+            return ""
+        first = text.splitlines()[0].strip()
+        return first[:limit]
+
+    def _extract_hook_task(self, payload: dict) -> str:
+        inner = payload.get("payload") or {}
+        if isinstance(inner, str):
+            try:
+                inner = json.loads(inner)
+            except json.JSONDecodeError:
+                inner = {}
+        if not isinstance(inner, dict):
+            inner = {}
+        text = inner.get("prompt") or inner.get("text") or payload.get("text") or payload.get("prompt") or ""
+        if text:
+            return self._first_line(text)
+        cwd = inner.get("cwd") or payload.get("cwd") or ""
+        if cwd:
+            return Path(cwd).name
+        return ""
+
+    def _extract_jsonl_task(self, payload: dict) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        ptype = payload.get("type", "")
+        if ptype not in ("user_message", "agent_message"):
+            return ""
+        text = ""
+        if isinstance(payload.get("text"), str):
+            text = payload["text"]
+        elif isinstance(payload.get("message"), str):
+            text = payload["message"]
+        elif isinstance(payload.get("content"), list):
+            parts = []
+            for item in payload["content"]:
+                if isinstance(item, dict):
+                    if isinstance(item.get("text"), str):
+                        parts.append(item["text"])
+                    elif isinstance(item.get("output_text"), str):
+                        parts.append(item["output_text"])
+            text = " ".join(parts)
+        return self._first_line(text)
+
     async def _maybe_transition(self):
         now = time.monotonic()
         # COMPLETED -> IDLE after hold
@@ -178,7 +237,7 @@ class CodexMonitor:
             await self._cb({
                 "state": state,
                 "progress": 0,
-                "task": "",
+                "task": self._current_task,
                 "timestamp": int(time.time()),
             })
         log.info("state -> %s (%s)", state, source)

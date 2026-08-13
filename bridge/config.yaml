@@ -3,6 +3,7 @@ device:
   service_uuid: CDD4DFFB-2FD0-4F2D-9A87-C7D2535B59E0
   state_char_uuid: DA3CDABA-E192-460B-ACF3-B2C59C6A3EE0
   command_char_uuid: 7C9DA1DE-8FE4-4B95-A366-51EA94E3010C
+  task_char_uuid: 9578BE09-6CA5-4221-8F83-E26996838F86
 
 connection:
   mode: ble
