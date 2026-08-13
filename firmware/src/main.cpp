@@ -2,16 +2,19 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <SPI.h>
+#include <LittleFS.h>
 
 #include "config/config.h"
 #include "pet/pet_state.h"
 #include "pet/pet_animation.h"
 #include "communication/ble_manager.h"
+#include "communication/wifi_server.h"
 #include "storage/pet_stats.h"
 
 Adafruit_ST7789 tft(PIN_LCD_CS, PIN_LCD_DC, PIN_LCD_RST);
 PetAnimation pet;
 BleManager ble;
+WifiServer wifi;
 PetStatsStore stats;
 
 static const PetState DEMO_SEQUENCE[] = {
@@ -52,11 +55,12 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(2);
     tft.print("CODEX PET");
 
-    const char* online = ble.isOnline() ? "ONLINE" : "OFFLINE";
+    const bool online = ble.isOnline() || wifi.isConnected();
+    const char* onlineLabel = online ? "ONLINE" : "OFFLINE";
     tft.setCursor(196, 9);
-    tft.setTextColor(ble.isOnline() ? ST77XX_GREEN : ST77XX_RED);
+    tft.setTextColor(online ? ST77XX_GREEN : ST77XX_RED);
     tft.setTextSize(1);
-    tft.print(online);
+    tft.print(onlineLabel);
 
     tft.setCursor(252, 9);
     tft.setTextColor(ST77XX_CYAN);
@@ -111,10 +115,17 @@ void setup() {
     tft.fillScreen(ST77XX_BLACK);
     tft.setTextWrap(false);
 
+    if (!LittleFS.begin(true)) {
+        Serial.println("[FS] LittleFS mount failed");
+    } else {
+        Serial.printf("[FS] LittleFS ready used=%u total=%u\n",
+                      (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
+    }
     stats.begin();
     pet.begin();
     pet.setState(PetState::OFFLINE);
     ble.begin();
+    wifi.begin();
     Serial.println("[PET] ready");
 }
 
@@ -127,6 +138,25 @@ void loop() {
 
     const uint32_t now = millis();
     ble.update(now);
+    wifi.update();
+
+    // WiFi-driven state (lower priority than BLE packets)
+    if (wifi.hasPendingState()) {
+        const uint8_t st = wifi.pendingState();
+        if (st <= static_cast<uint8_t>(PetState::SLEEP)) {
+            externalControl = true;
+            applyState(static_cast<PetState>(st), "wifi");
+        }
+        if (strlen(wifi.pendingTask()) > 0) {
+            snprintf(bottomText, sizeof(bottomText), "task: %s", wifi.pendingTask());
+            lastShownState = static_cast<PetState>(0xFF);
+        }
+        wifi.clearPendingState();
+    }
+    if (wifi.hasPendingSkin()) {
+        pet.refreshExternalFrames();
+        wifi.clearPendingSkin();
+    }
 
     // working-time accumulation
     static uint32_t lastWorkTick = now;
@@ -164,7 +194,7 @@ void loop() {
     }
 
     // offline / online transitions
-    const bool online = ble.isOnline();
+    const bool online = ble.isOnline() || wifi.isConnected();
     if (online != lastOnline) {
         lastOnline = online;
         if (!online && externalControl) {

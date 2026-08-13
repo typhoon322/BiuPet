@@ -10,6 +10,8 @@ public:
     void setState(PetState state);
     PetState state() const { return state_; }
     void update(uint32_t nowMs);
+    int externalFrameCount(PetState state);
+    void refreshExternalFrames();
     void draw(Adafruit_ST7789& tft, int16_t x, int16_t y);
 
 private:
@@ -40,6 +42,12 @@ private:
     bool showDots_ = false;
     bool showStar_ = false;
     bool showSweat_ = false;
+    uint16_t* extBuf_ = nullptr;
+    int extCount_[7] = {-1, -1, -1, -1, -1, -1, -1};
+    uint32_t extCountAtMs_[7] = {0, 0, 0, 0, 0, 0, 0};
+    uint32_t extDelayMs_[7] = {0, 0, 0, 0, 0, 0, 0};
+    int extFrame_ = 0;
+    uint32_t lastExtFrameMs_ = 0;
 
     void drawFace();
     void drawBody();

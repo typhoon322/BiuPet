@@ -1,5 +1,7 @@
 #include "pet_animation.h"
 
+#include <Arduino.h>
+#include <LittleFS.h>
 #include <math.h>
 
 namespace {
@@ -74,6 +76,45 @@ PetAnimation::PetAnimation() = default;
 void PetAnimation::begin() {
     stateStartedMs_ = millis();
     lastFrameMs_ = millis();
+    lastExtFrameMs_ = millis();
+    extBuf_ = static_cast<uint16_t*>(ps_malloc(SIZE * SIZE * 2));
+    if (extBuf_ == nullptr) {
+        extBuf_ = static_cast<uint16_t*>(malloc(SIZE * SIZE * 2));
+    }
+}
+
+int PetAnimation::externalFrameCount(PetState state) {
+    const int i = static_cast<int>(state);
+    const uint32_t now = millis();
+    if (extCount_[i] < 0 || now - extCountAtMs_[i] > 5000) {
+        extCount_[i] = 0;
+        extDelayMs_[i] = 0;
+        extCountAtMs_[i] = now;
+        String path = "/skin/" + String(i) + "/count.txt";
+        if (LittleFS.exists(path)) {
+            File f = LittleFS.open(path, "r");
+            if (f) {
+                extCount_[i] = f.readStringUntil('\n').toInt();
+                f.close();
+            }
+        }
+        String delayPath = "/skin/" + String(i) + "/delay_ms.txt";
+        if (LittleFS.exists(delayPath)) {
+            File f = LittleFS.open(delayPath, "r");
+            if (f) {
+                extDelayMs_[i] = f.readStringUntil('\n').toInt();
+                f.close();
+            }
+        }
+    }
+    return extCount_[i];
+}
+
+void PetAnimation::refreshExternalFrames() {
+    for (int i = 0; i < 7; ++i) {
+        extCount_[i] = -1;
+    }
+    extFrame_ = 0;
 }
 
 void PetAnimation::setState(PetState state) {
@@ -107,6 +148,19 @@ void PetAnimation::update(uint32_t nowMs) {
     const float t = static_cast<float>(nowMs - stateStartedMs_) / 1000.0f;
     const float phase = t * TAU;
     frame_++;
+
+    // pace uploaded skins at their native GIF rate
+    const int extCount = externalFrameCount(state_);
+    if (extCount > 0) {
+        uint32_t delay = extDelayMs_[static_cast<int>(state_)];
+        if (delay == 0) {
+            delay = 100;
+        }
+        if (nowMs - lastExtFrameMs_ >= delay) {
+            lastExtFrameMs_ = nowMs;
+            extFrame_++;
+        }
+    }
 
     switch (state_) {
         case PetState::IDLE: {
@@ -204,6 +258,32 @@ void PetAnimation::update(uint32_t nowMs) {
 }
 
 void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
+    // external sprite frames (uploaded over WiFi) take priority
+    const int extCount = externalFrameCount(state_);
+    if (extCount > 0 && extBuf_ != nullptr) {
+        const int idx = extFrame_ % extCount;
+        String path = "/skin/" + String(static_cast<uint8_t>(state_)) + "/" + String(idx) + ".rgb565";
+        File f = LittleFS.open(path, "r");
+        if (f && f.size() >= static_cast<int32_t>(SIZE * SIZE * 2)) {
+            f.read(reinterpret_cast<uint8_t*>(extBuf_), SIZE * SIZE * 2);
+            f.close();
+            tft.startWrite();
+            tft.setAddrWindow(x, y, SIZE, SIZE);
+            uint32_t total = SIZE * SIZE;
+            uint32_t off = 0;
+            while (off < total) {
+                const uint32_t n = (total - off > 1024) ? 1024 : (total - off);
+                tft.writePixels(extBuf_ + off, n);
+                off += n;
+            }
+            tft.endWrite();
+            return;
+        }
+        if (f) {
+            f.close();
+        }
+    }
+
     canvas_.fillScreen(COLOR_BG);
 
     const float t = static_cast<float>(millis() - stateStartedMs_) / 1000.0f;

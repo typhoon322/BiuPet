@@ -43,4 +43,5 @@ private:
     bool taskChanged_ = false;
     uint32_t usageTokens_ = 0;
     bool usageChanged_ = false;
+    uint8_t lastLoggedState_ = 0xFF;
 };

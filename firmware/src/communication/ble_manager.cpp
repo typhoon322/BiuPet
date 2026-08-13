@@ -144,8 +144,12 @@ void BleManager::onStateWrite(const uint8_t* data, size_t len) {
                             (static_cast<uint32_t>(data[9]) << 24);
     }
     hasNewPacket_ = true;
-    Serial.printf("[BLE] state packet: state=%u progress=%u flags=0x%02x\n",
-                  static_cast<uint8_t>(packet_.state), packet_.progress, data[5]);
+    // heartbeat spam is normal; only log real state changes
+    if (packet_.state != static_cast<PetState>(lastLoggedState_) || (data[5] & 0x01) == 0) {
+        lastLoggedState_ = static_cast<uint8_t>(packet_.state);
+        Serial.printf("[BLE] state packet: state=%u progress=%u flags=0x%02x\n",
+                      static_cast<uint8_t>(packet_.state), packet_.progress, data[5]);
+    }
 }
 
 void BleManager::onCommandWrite(const uint8_t* data, size_t len) {
