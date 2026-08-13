@@ -6,9 +6,11 @@
 #include "config/config.h"
 #include "pet/pet_state.h"
 #include "pet/pet_animation.h"
+#include "communication/ble_manager.h"
 
 Adafruit_ST7789 tft(PIN_LCD_CS, PIN_LCD_DC, PIN_LCD_RST);
 PetAnimation pet;
+BleManager ble;
 
 static const PetState DEMO_SEQUENCE[] = {
     PetState::IDLE,
@@ -22,6 +24,8 @@ static const PetState DEMO_SEQUENCE[] = {
 static constexpr int DEMO_COUNT = sizeof(DEMO_SEQUENCE) / sizeof(DEMO_SEQUENCE[0]);
 
 static PetState lastShownState = static_cast<PetState>(0xFF);
+static bool externalControl = false;
+static char bottomText[64] = "demo: state cycle";
 
 void drawStatusBar(PetState state) {
     tft.fillRect(0, 0, 320, 26, ST77XX_BLACK);
@@ -30,22 +34,27 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(2);
     tft.print("CODEX PET");
 
-    tft.setCursor(206, 9);
-    tft.setTextColor(ST77XX_CYAN);
+    const char* online = ble.isOnline() ? "ONLINE" : "OFFLINE";
+    tft.setCursor(196, 9);
+    tft.setTextColor(ble.isOnline() ? ST77XX_GREEN : ST77XX_RED);
     tft.setTextSize(1);
+    tft.print(online);
+
+    tft.setCursor(252, 9);
+    tft.setTextColor(ST77XX_CYAN);
     tft.print(petStateName(state));
 
     tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
     tft.setCursor(16, 220);
     tft.setTextColor(ST77XX_CYAN);
     tft.setTextSize(1);
-    tft.print("phase1 demo: state cycle");
+    tft.print(bottomText);
 }
 
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 2000) { delay(10); }
-    Serial.println("\n=== CodexPet phase1 full-cat ===");
+    Serial.println("\n=== CodexPet phase2: BLE ===");
 
     ledcSetup(0, 5000, 8);
     ledcAttachPin(PIN_LCD_BL, 0);
@@ -69,8 +78,9 @@ void setup() {
     tft.setTextWrap(false);
 
     pet.begin();
-    pet.setState(DEMO_SEQUENCE[0]);
-    Serial.println("[PET] demo started");
+    pet.setState(PetState::OFFLINE);
+    ble.begin();
+    Serial.println("[PET] ready");
 }
 
 void loop() {
@@ -78,20 +88,49 @@ void loop() {
     static uint32_t lastFpsLog = millis();
     static uint32_t frames = 0;
     static int demoIndex = 0;
+    static bool lastOnline = false;
 
     const uint32_t now = millis();
+    ble.update(now);
 
-    if (now - lastStateSwitch >= 6000) {
-        lastStateSwitch = now;
-        demoIndex = (demoIndex + 1) % DEMO_COUNT;
-        pet.setState(DEMO_SEQUENCE[demoIndex]);
-        Serial.printf("[PET] state -> %s\n", petStateName(DEMO_SEQUENCE[demoIndex]));
+    // BLE-driven state
+    if (ble.hasNewPacket()) {
+        PetPacket pkt = ble.takePacket();
+        externalControl = true;
+        pet.setState(pkt.state);
+        Serial.printf("[PET] BLE state -> %s\n", petStateName(pkt.state));
+    }
+
+    if (ble.taskChanged()) {
+        ble.clearTaskChanged();
+        snprintf(bottomText, sizeof(bottomText), "task: %s", ble.taskText());
+        lastShownState = static_cast<PetState>(0xFF); // force bar redraw
+    }
+
+    // offline / online transitions
+    const bool online = ble.isOnline();
+    if (online != lastOnline) {
+        lastOnline = online;
+        if (!online && externalControl) {
+            pet.setState(PetState::OFFLINE);
+            Serial.println("[PET] offline");
+        }
+        lastShownState = static_cast<PetState>(0xFF);
+    }
+
+    // demo fallback while no BLE control yet
+    if (!externalControl) {
+        if (now - lastStateSwitch >= 6000) {
+            lastStateSwitch = now;
+            demoIndex = (demoIndex + 1) % DEMO_COUNT;
+            pet.setState(DEMO_SEQUENCE[demoIndex]);
+            Serial.printf("[PET] demo state -> %s\n", petStateName(DEMO_SEQUENCE[demoIndex]));
+        }
     }
 
     pet.update(now);
 
-    // redraw status text only when the state actually changes (avoids flicker)
-    if (lastShownState != pet.state()) {
+    if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
         lastShownState = pet.state();
         drawStatusBar(pet.state());
     }

@@ -81,5 +81,5 @@ class BleBridge:
             state.get("flags", 0),
             ts,
         )
-        await self._client.write_gatt_char(self._state_char, packet, response=False)
+        await self._client.write_gatt_char(self._state_char, packet, response=True)
         log.debug("sent state=%s", state.get("state"))
