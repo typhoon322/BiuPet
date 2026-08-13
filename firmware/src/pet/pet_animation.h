@@ -52,13 +52,17 @@ private:
     float butterflyX_ = 240.0f; // WORKING: butterfly position
     float butterflyY_ = 46.0f;
     float butterflyPhase_ = 0.0f;
-    float jumpT_ = -1.0f;       // WORKING: >=0 while jumping, -1 otherwise
+    float pounceT_ = -1.0f;     // WORKING pounce: >=0 in progress
+    float pounceCd_ = 0.0f;     // cooldown before the next pounce
+    float rearUp_ = 0.0f;       // 0..1: standing up, front paws raised
+    float pounceAir_ = 0.0f;    // 0..1: airborne stretch of the leap
+    float bodyStretch_ = 1.0f;  // chase: spine stretch for the leopard run
 
-    void drawSideHead(int16_t cx, int16_t ground, int16_t m, float t,
+    void drawSideHead(int16_t hx, int16_t hy, int16_t m, float t,
                       uint16_t headColor, uint16_t darkColor,
                       uint16_t snoutColor, uint16_t lineColor);
     void drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
-                     uint16_t color, float phase, float t);
+                     uint16_t color, float phase, bool frontLeg, float t);
     void drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color);
     void drawButterfly(int16_t bx, int16_t by, float flap);
     void drawSymbols(int16_t cx, int16_t cy, float t);
