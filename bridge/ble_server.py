@@ -29,6 +29,7 @@ class BleBridge:
         self._client: BleakClient | None = None
         self._state_char: str = cfg["device"]["state_char_uuid"]
         self._pending: asyncio.Queue[dict] = asyncio.Queue()
+        self._last_state = "IDLE"
 
     async def run(self, stop_event: asyncio.Event):
         log.info("BLE bridge started; looking for %s", self.cfg["device"]["name"])
@@ -60,6 +61,7 @@ class BleBridge:
                     await self._send_packet({"state": self._last_state or "IDLE", "flags": 0x01})
 
     async def send_state(self, state: dict):
+        self._last_state = state.get("state", "IDLE")
         await self._pending.put(state)
 
     async def _send_packet(self, state: dict):
@@ -72,7 +74,7 @@ class BleBridge:
         else:
             progress = 255
         packet = struct.pack(
-            "<BBBBBI",
+            "<BBBBBBI",
             0x01,
             STATE_ENUM.get(state.get("state", "IDLE"), 1),
             progress,

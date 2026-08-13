@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""CodexPet Mac bridge: connects Codex state to ESP32 over BLE."""
+"""CodexPet Mac bridge: Codex state -> BLE -> ESP32 pet."""
 import argparse
 import asyncio
 import logging
-import os
 import signal
 import sys
-from pathlib import Path
 
 from config import load_config
 from codex_monitor import CodexMonitor
@@ -30,15 +28,20 @@ async def main():
     bridge = BleBridge(cfg)
 
     async def on_state(state):
-        log.debug("state=%s", state)
+        log.info("monitor -> %s", state.get("state"))
         await bridge.send_state(state)
 
     monitor.set_callback(on_state)
 
     stop_event = asyncio.Event()
+    loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        asyncio.get_event_loop().add_signal_handler(sig, stop_event.set)
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except NotImplementedError:
+            pass
 
+    log.info("bridge starting")
     await asyncio.gather(
         monitor.run(stop_event),
         bridge.run(stop_event),
