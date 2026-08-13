@@ -1492,7 +1492,7 @@ Usage
 
 ---
 
-### Phase 7 🚧 进行中（养成基础、Wi-Fi/OTA、DeepSeek 余额已完成，音效/震动/WebUI 待做）
+### Phase 7 🚧 进行中（养成基础、Wi-Fi/OTA、DeepSeek 余额已完成；皮肤动画已删除；音效/震动/WebUI 待做）
 
 最后才做：
 
@@ -1509,28 +1509,13 @@ OTA
 
 #### Phase 7 已落地
 
-**Wi-Fi 皮肤上传**（`firmware/src/communication/wifi_server.cpp`）：
+**Wi-Fi 控制**（`firmware/src/communication/wifi_server.cpp`）：
 
 - 上电后非阻塞连接家里 Wi-Fi（凭据放 `firmware/src/config/secrets.h`，已 gitignore；参考 `secrets.example.h`）
 - 连不上 15 秒后自动切 SoftAP：`CodexPet-AP` / `codexpet123`（192.168.4.1），每 60 秒重试家里网络
 - HTTP API：
   - `POST /api/state` JSON `{"state":"WORKING","task":"..."}`，state 也接受数字 0..6
-  - `POST /api/frame?state=0..6&index=N`，body 为 128×128 RGB565 的 base64（接口保留）
-  - `POST /api/delay?state=N`，body 为该状态每帧间隔 ms（20..5000，接口保留）
-  - `POST /api/clear?state=N` 清空该状态的皮肤（接口保留）
-- 皮肤帧存 LittleFS `/skin/<state>/<index>.rgb565`；**当前固件默认显示内置程序化橘猫**，皮肤上传接口保留但不再覆盖显示（需要时可把 draw 里的皮肤路径重新接回）
-- `convert_gif.py` 会按 GIF 原始帧率生成 `delay_ms.txt`，`skin_upload.py` 自动上传，保证动画速度与原图一致
-
-**资源转换/上传脚本**（`bridge/convert_gif.py`、`bridge/skin_upload.py`）：
-
-```bash
-# 1. GIF 转 128x128 帧 + 预览图
-.venv/bin/python bridge/convert_gif.py
-
-# 2. 把某个状态的帧上传到 ESP32（默认走 SoftAP IP）
-.venv/bin/python bridge/skin_upload.py --dir assets/la_bi_xiao_xin_2324/frames --state IDLE
-# 若 ESP32 已连家里 Wi-Fi，用 --ip <ESP32 的 IP>
-```
+- 皮肤上传接口与 `assets/`、`convert_gif.py`、`skin_upload.py` 已删除（按需求回到内置程序化橘猫）
 
 **OTA**（`ArduinoOTA`，hostname `codex-pet`）：
 
@@ -1539,7 +1524,7 @@ OTA
 # 或用 esptool 上传 firmware.bin 到 OTA 分区
 ```
 
-分区表 `default_16MB.csv` 已带 `app0`/`app1` OTA 分区，LittleFS 3.3MB 足够放皮肤。
+分区表 `default_16MB.csv` 已带 `app0`/`app1` OTA 分区。
 
 **DeepSeek 余额**（`firmware/src/net/deepseek_balance.cpp`）：
 
@@ -1607,14 +1592,6 @@ codex-pet/
 │   ├── ble_server.py
 │   ├── protocol.py
 │   └── requirements.txt
-│
-├── assets/
-│   ├── idle/
-│   ├── working/
-│   ├── waiting/
-│   ├── completed/
-│   ├── error/
-│   └── sleep/
 │
 ├── docs/
 │   ├── protocol.md

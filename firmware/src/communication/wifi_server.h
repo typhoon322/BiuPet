@@ -15,15 +15,11 @@ public:
     const char* pendingTask() const { return pendingTask_.c_str(); }
     void clearPendingState() { statePending_ = false; pendingTask_ = ""; }
 
-    bool hasPendingSkin() const { return skinPending_; }
-    void clearPendingSkin() { skinPending_ = false; }
-
 private:
     WebServer server_{80};
     bool statePending_ = false;
     uint8_t pendingState_ = 0;
     String pendingTask_;
-    bool skinPending_ = false;
 
     enum class Mode : uint8_t { Connecting, Station, FallbackAp };
     Mode mode_ = Mode::Connecting;
@@ -32,7 +28,4 @@ private:
 
     void handleRoot();
     void handleState();
-    void handleFrame();
-    void handleDelay();
-    void handleClear();
 };

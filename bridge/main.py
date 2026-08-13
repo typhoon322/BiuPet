@@ -38,7 +38,8 @@ async def main():
             try:
                 tokens = usage.today_tokens()
                 if tokens > 0:
-                    await bridge.send_state({"state": "IDLE", "usage_tokens": tokens})
+                    # usage must not touch the current pet state
+                    await bridge.send_usage(tokens)
             except Exception as e:
                 log.warning("usage loop error: %s", e)
             try:

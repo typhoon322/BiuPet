@@ -2,7 +2,6 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <SPI.h>
-#include <LittleFS.h>
 
 #include "config/config.h"
 #include "pet/pet_state.h"
@@ -50,6 +49,24 @@ static void applyState(PetState newState, const char* source) {
 static char bottomText[64] = "demo: state cycle";
 static char usageText[32] = "usage: -";
 
+// GLCD font only covers ASCII: map everything else to '?' and clamp width so
+// the task line never overlaps the DeepSeek balance in the bottom-right.
+static void sanitizeTaskLine(const char* src, char* dst, size_t dstCap, int maxPx) {
+    constexpr int FONT_W = 6;
+    int px = 0;
+    size_t o = 0;
+    for (size_t i = 0; src[i] != '\0' && o + 1 < dstCap; ++i) {
+        const unsigned char c = static_cast<unsigned char>(src[i]);
+        const char out = (c >= 0x20 && c <= 0x7E) ? static_cast<char>(c) : '?';
+        if (px + FONT_W > maxPx) {
+            break;
+        }
+        dst[o++] = out;
+        px += FONT_W;
+    }
+    dst[o] = '\0';
+}
+
 void drawStatusBar(PetState state) {
     tft.fillRect(0, 0, 320, 26, ST77XX_BLACK);
     tft.setCursor(16, 7);
@@ -76,16 +93,7 @@ void drawStatusBar(PetState state) {
         taskMaxPx = 40;
     }
     char taskBuf[48];
-    size_t taskLen = strlen(bottomText);
-    if (taskLen > sizeof(taskBuf) - 1) {
-        taskLen = sizeof(taskBuf) - 1;
-    }
-    memcpy(taskBuf, bottomText, taskLen);
-    taskBuf[taskLen] = '\0';
-    const int taskChars = taskMaxPx / 6;
-    if (taskLen > static_cast<size_t>(taskChars)) {
-        taskBuf[taskChars] = '\0';
-    }
+    sanitizeTaskLine(bottomText, taskBuf, sizeof(taskBuf), taskMaxPx);
     tft.setCursor(16, 220);
     tft.setTextColor(ST77XX_CYAN);
     tft.setTextSize(1);
@@ -139,12 +147,6 @@ void setup() {
     tft.fillScreen(ST77XX_BLACK);
     tft.setTextWrap(false);
 
-    if (!LittleFS.begin(true)) {
-        Serial.println("[FS] LittleFS mount failed");
-    } else {
-        Serial.printf("[FS] LittleFS ready used=%u total=%u\n",
-                      (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
-    }
     stats.begin();
     pet.begin();
     pet.setState(PetState::OFFLINE);

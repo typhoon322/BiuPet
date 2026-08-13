@@ -56,6 +56,9 @@ class BleBridge:
         async with BleakClient(device) as client:
             self._client = client
             log.info("Connected")
+            # fresh link: re-send usage/task on next update
+            self._last_usage = -1
+            self._last_task = ""
             while client.is_connected and not stop_event.is_set():
                 try:
                     msg = await asyncio.wait_for(self._pending.get(), timeout=1.0)
@@ -71,21 +74,29 @@ class BleBridge:
             self._last_task = task
             if self._client and self._client.is_connected and self._task_char:
                 try:
-                    await self._client.write_gatt_char(self._task_char, task.encode("utf-8")[:63], response=True)
+                    data = task.encode("utf-8")[:63]
+                    # never split a multi-byte UTF-8 char at the 63-byte limit
+                    while data and (data[-1] & 0xC0) == 0x80:
+                        data = data[:-1]
+                    await self._client.write_gatt_char(self._task_char, data, response=True)
                     log.info("task sent: %s", task)
                 except Exception as e:
                     log.warning("task send failed: %s", e)
-        usage = state.get("usage_tokens")
-        if usage is not None and usage != self._last_usage:
-            self._last_usage = usage
-            if self._client and self._client.is_connected and self._command_char:
-                try:
-                    msg = f"USAGE {usage}".encode("utf-8")[:63]
-                    await self._client.write_gatt_char(self._command_char, msg, response=True)
-                    log.info("usage sent: %s tokens", usage)
-                except Exception as e:
-                    log.warning("usage send failed: %s", e)
         await self._pending.put(state)
+
+    async def send_usage(self, tokens: int):
+        """Send today's token usage over the command char without changing state."""
+        if tokens == self._last_usage:
+            return
+        self._last_usage = tokens
+        if self._client is None or not self._client.is_connected or not self._command_char:
+            return
+        try:
+            msg = f"USAGE {tokens}".encode("utf-8")[:63]
+            await self._client.write_gatt_char(self._command_char, msg, response=True)
+            log.info("usage sent: %s tokens", tokens)
+        except Exception as e:
+            log.warning("usage send failed: %s", e)
 
     async def _send_packet(self, state: dict):
         if self._client is None or not self._client.is_connected:
