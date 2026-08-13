@@ -117,7 +117,7 @@ void PetAnimation::update(uint32_t nowMs) {
             butterflyY_ = 48.0f + 22.0f * sinf(butterflyPhase_ * 1.6f);
             const float dx = butterflyX_ - walkX_;
             facingLeft_ = dx < 0.0f;
-            walkPhase_ += 16.0f * dt;
+            walkPhase_ += 9.0f * dt;  // gallop stride ~1.4 Hz
 
             if (pounceCd_ > 0.0f) {
                 pounceCd_ -= dt;
@@ -148,8 +148,8 @@ void PetAnimation::update(uint32_t nowMs) {
                 pounceT_ = 0.0f;  // in range: stand up and pounce
                 bodyStretch_ = 1.0f;
             } else {
-                // low, stretched leopard gallop
-                bodyStretch_ = 0.5f + 0.5f * sinf(walkPhase_ * 2.0f);
+                // leopard gallop: one back flex per stride
+                bodyStretch_ = 0.5f + 0.5f * sinf(walkPhase_);
                 walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 52.0f * dt;
                 bob_ = 0.3f;
             }
@@ -247,10 +247,10 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
         hx = cx + (24 + static_cast<int16_t>(6.0f * pounceAir_)) * m;
         hy = ground - 44;
     } else if (chasing) {
-        bodyW = 36 + static_cast<int16_t>(16.0f * bodyStretch_);
-        bodyH = 24;
-        hx = cx + (24 + static_cast<int16_t>(3.0f * bodyStretch_)) * m;
-        hy = ground - 43;
+        bodyW = 30 + static_cast<int16_t>(26.0f * bodyStretch_);
+        bodyH = 22;
+        hx = cx + (26 + static_cast<int16_t>(5.0f * bodyStretch_)) * m;
+        hy = ground - 40;
     }
     const int16_t bodyCy = ground - 10 - bodyH / 2;  // bottom floats 10px above ground
 
@@ -258,13 +258,24 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     drawSideLeg(cx - 16 * m, ground, m, 2, darkColor, 0.0f, false, t);   // far back
     drawSideLeg(cx + 5 * m, ground, m, 2, darkColor, PI, true, t);       // far front
 
-    fillRoundRectAuto(canvas_, cx - bodyW / 2, bodyCy - bodyH / 2, bodyW, bodyH, 14, bodyColor);
-    // belly
-    fillRoundRectAuto(canvas_, cx - bodyW / 2 + 4, bodyCy + 2, bodyW - 8, bodyH / 2 - 2, 10, bellyColor);
-    // back stripes
-    if (state_ != PetState::OFFLINE) {
-        for (int i = 0; i < 3; ++i) {
-            canvas_.fillRoundRect(cx - bodyW / 2 + 9 + i * 13, bodyCy - bodyH / 2 - 1, 5, 9, 2, darkColor);
+    if (chasing) {
+        // leopard gallop: long low belly, an arched back that rises on the
+        // contracted stride and flattens when extended, rear haunch
+        const float s = bodyStretch_;
+        canvas_.fillEllipse(cx, ground - 14, bodyW / 2, 8, bodyColor);      // belly mass
+        const int16_t humpY = ground - 34 - static_cast<int16_t>(12.0f * (1.0f - s));
+        canvas_.fillCircle(cx + 3 * m, humpY, 12, bodyColor);               // arched back
+        canvas_.fillCircle(cx - 13 * m, ground - 20, 9, bodyColor);         // haunch
+        canvas_.fillEllipse(cx, ground - 12, bodyW / 2 - 1, 5, bellyColor); // light belly
+    } else {
+        fillRoundRectAuto(canvas_, cx - bodyW / 2, bodyCy - bodyH / 2, bodyW, bodyH, 14, bodyColor);
+        // belly
+        fillRoundRectAuto(canvas_, cx - bodyW / 2 + 4, bodyCy + 2, bodyW - 8, bodyH / 2 - 2, 10, bellyColor);
+        // back stripes
+        if (state_ != PetState::OFFLINE) {
+            for (int i = 0; i < 3; ++i) {
+                canvas_.fillRoundRect(cx - bodyW / 2 + 9 + i * 13, bodyCy - bodyH / 2 - 1, 5, 9, 2, darkColor);
+            }
         }
     }
 
@@ -317,11 +328,22 @@ void PetAnimation::drawButterfly(int16_t bx, int16_t by, float flap) {
 }
 
 void PetAnimation::drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color) {
-    // attach at the rump, not the rear foot
-    const int16_t baseX = cx - 19 * m;
-    const int16_t baseY = ground - 28;
-    const int16_t tipX = baseX - 14 * m + static_cast<int16_t>(sinf(t * 2.0f + 1.0f) * 4.0f);
-    const int16_t tipY = baseY - 14 + static_cast<int16_t>(sinf(t * 3.0f) * 3.0f);
+    const bool chasing =
+        state_ == PetState::WORKING && rearUp_ <= 0.05f && pounceAir_ <= 0.05f;
+    int16_t baseX, baseY, tipX, tipY;
+    if (chasing) {
+        // low tail streaming behind the gallop
+        baseX = cx - 13 * m;
+        baseY = ground - 20;
+        tipX = baseX - 16 * m + static_cast<int16_t>(sinf(t * 2.0f + 1.0f) * 3.0f);
+        tipY = baseY - 2 + static_cast<int16_t>(sinf(t * 3.0f) * 2.0f);
+    } else {
+        // attached at the rump, not the rear foot
+        baseX = cx - 19 * m;
+        baseY = ground - 28;
+        tipX = baseX - 14 * m + static_cast<int16_t>(sinf(t * 2.0f + 1.0f) * 4.0f);
+        tipY = baseY - 14 + static_cast<int16_t>(sinf(t * 3.0f) * 3.0f);
+    }
     const int segments = 5;
     for (int i = segments; i >= 0; --i) {
         const float f = static_cast<float>(i) / segments;
@@ -366,7 +388,8 @@ void PetAnimation::drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
         lift = fmaxf(sinf(walkPhase_ + phase), 0.0f);
         lx += static_cast<int16_t>(sinf(walkPhase_ + phase) * 2.0f) * m;
     } else if (state_ == PetState::WORKING) {
-        lift = fmaxf(sinf(walkPhase_ * 1.5f + phase), 0.0f);
+        lift = fmaxf(sinf(walkPhase_ + phase), 0.0f) * 1.6f;   // gallop pump
+        lx += static_cast<int16_t>(sinf(walkPhase_ + phase) * 4.0f) * m;
         if (bob_ > 6.0f) {
             lift = 1.0f;  // airborne: tuck the legs
         }
