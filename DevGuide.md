@@ -1511,11 +1511,14 @@ OTA
 
 **Wi-Fi 控制**（`firmware/src/communication/wifi_server.cpp`）：
 
-- 上电后非阻塞连接家里 Wi-Fi（凭据放 `firmware/src/config/secrets.h`，已 gitignore；参考 `secrets.example.h`）
-- 连不上 15 秒后自动切 SoftAP：`CodexPet-AP` / `codexpet123`（192.168.4.1），每 60 秒重试家里网络
+- AP 常开 + STA 后台连接（EnvMonitor 模型）：SoftAP `CodexPet-AP` / `codexpet123`（192.168.4.1）永远在线，STA 用退避重试连家里网络，两者互不干扰
+- 凭据优先读 NVS（`codepet`/`wifi_ssid`+`wifi_pass`），没有则回退 `firmware/src/config/secrets.h`（gitignore）；**网页/接口可随时改**：
+  - `GET /api/wifi` 查看状态；`POST /api/wifi` JSON `{"ssid":"...","pass":"..."}` 保存并重连
+  - 手机连 `CodexPet-AP` 后打开 `http://192.168.4.1` 即可设置
 - HTTP API：
   - `POST /api/state` JSON `{"state":"WORKING","task":"..."}`，state 也接受数字 0..6
 - 皮肤上传接口与 `assets/`、`convert_gif.py`、`skin_upload.py` 已删除（按需求回到内置程序化橘猫）
+- ⚠️ 本机同时跑 BLE（NimBLE）时**不要调用 `WiFi.setSleep(false)`**——ESP-IDF 会直接 abort（"Should enable WiFi modem sleep when both WiFi and Bluetooth are enabled"）；EnvMonitor 是纯 WiFi 的 C3 才不受影响
 
 **OTA**（`ArduinoOTA`，hostname `codex-pet`）：
 

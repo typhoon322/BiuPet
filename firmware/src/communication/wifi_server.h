@@ -8,8 +8,7 @@ public:
     void begin();
     void update();
 
-    // true when any WiFi link (station or fallback AP) is up
-    bool isConnected() const { return mode_ != Mode::Connecting; }
+    bool isConnected() const;
     bool hasPendingState() const { return statePending_; }
     uint8_t pendingState() const { return pendingState_; }
     const char* pendingTask() const { return pendingTask_.c_str(); }
@@ -20,12 +19,15 @@ private:
     bool statePending_ = false;
     uint8_t pendingState_ = 0;
     String pendingTask_;
+    String ssid_;
+    String pass_;
+    uint32_t nextRetryMs_ = 0;
+    uint32_t backoffMs_ = 3000;
 
-    enum class Mode : uint8_t { Connecting, Station, FallbackAp };
-    Mode mode_ = Mode::Connecting;
-    uint32_t connectStartedMs_ = 0;
-    uint32_t lastConnectedMs_ = 0;
-
+    void loadCredentials();
+    void connectSta();
     void handleRoot();
     void handleState();
+    void handleWifiGet();
+    void handleWifiPost();
 };
