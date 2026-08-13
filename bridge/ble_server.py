@@ -29,7 +29,9 @@ class BleBridge:
         self._client: BleakClient | None = None
         self._state_char: str = cfg["device"]["state_char_uuid"]
         self._task_char: str = cfg["device"].get("task_char_uuid", "")
+        self._command_char: str = cfg["device"].get("command_char_uuid", "")
         self._last_task = ""
+        self._last_usage = -1
         self._pending: asyncio.Queue[dict] = asyncio.Queue()
         self._last_state = "IDLE"
 
@@ -73,6 +75,16 @@ class BleBridge:
                     log.info("task sent: %s", task)
                 except Exception as e:
                     log.warning("task send failed: %s", e)
+        usage = state.get("usage_tokens")
+        if usage is not None and usage != self._last_usage:
+            self._last_usage = usage
+            if self._client and self._client.is_connected and self._command_char:
+                try:
+                    msg = f"USAGE {usage}".encode("utf-8")[:63]
+                    await self._client.write_gatt_char(self._command_char, msg, response=True)
+                    log.info("usage sent: %s tokens", usage)
+                except Exception as e:
+                    log.warning("usage send failed: %s", e)
         await self._pending.put(state)
 
     async def _send_packet(self, state: dict):

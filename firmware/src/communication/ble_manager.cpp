@@ -38,6 +38,17 @@ public:
     }
 };
 
+class CommandCallbacks : public NimBLECharacteristicCallbacks {
+public:
+    void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo& connInfo) override {
+        const std::string value = chr->getValue();
+        if (BleManager::instance()) {
+            BleManager::instance()->onCommandWrite(
+                reinterpret_cast<const uint8_t*>(value.data()), value.size());
+        }
+    }
+};
+
 class TaskCallbacks : public NimBLECharacteristicCallbacks {
 public:
     void onWrite(NimBLECharacteristic* chr, NimBLEConnInfo& connInfo) override {
@@ -71,7 +82,7 @@ void BleManager::begin() {
 
     NimBLECharacteristic* commandChar = service->createCharacteristic(
         COMMAND_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
-    commandChar->setCallbacks(new StateCallbacks()); // placeholder, parsed in main if needed
+    commandChar->setCallbacks(new CommandCallbacks());
 
     NimBLECharacteristic* taskChar = service->createCharacteristic(
         TASK_CHAR_UUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
@@ -135,6 +146,19 @@ void BleManager::onStateWrite(const uint8_t* data, size_t len) {
     hasNewPacket_ = true;
     Serial.printf("[BLE] state packet: state=%u progress=%u flags=0x%02x\n",
                   static_cast<uint8_t>(packet_.state), packet_.progress, data[5]);
+}
+
+void BleManager::onCommandWrite(const uint8_t* data, size_t len) {
+    lastPacketMs_ = millis();
+    if (len < 7 || memcmp(data, "USAGE ", 6) != 0) {
+        return;
+    }
+    char buf[24] = {};
+    const size_t n = (len - 6 < sizeof(buf) - 1) ? (len - 6) : (sizeof(buf) - 1);
+    memcpy(buf, data + 6, n);
+    usageTokens_ = static_cast<uint32_t>(strtoul(buf, nullptr, 10));
+    usageChanged_ = true;
+    Serial.printf("[BLE] usage tokens=%u\n", usageTokens_);
 }
 
 void BleManager::onTaskWrite(const uint8_t* data, size_t len) {

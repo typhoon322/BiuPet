@@ -22,11 +22,16 @@ public:
     const char* taskText() const { return taskText_; }
     void clearTaskChanged() { taskChanged_ = false; }
 
+    uint32_t usageTokens() const { return usageTokens_; }
+    bool usageChanged() const { return usageChanged_; }
+    void clearUsageChanged() { usageChanged_ = false; }
+
     static BleManager* instance() { return s_instance; }
     void onConnected();
     void onDisconnected();
     void onStateWrite(const uint8_t* data, size_t len);
     void onTaskWrite(const uint8_t* data, size_t len);
+    void onCommandWrite(const uint8_t* data, size_t len);
 
 private:
     static BleManager* s_instance;
@@ -36,4 +41,6 @@ private:
     PetPacket packet_;
     char taskText_[64] = "";
     bool taskChanged_ = false;
+    uint32_t usageTokens_ = 0;
+    bool usageChanged_ = false;
 };

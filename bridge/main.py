@@ -9,6 +9,7 @@ import sys
 from config import load_config
 from codex_monitor import CodexMonitor
 from ble_server import BleBridge
+from usage_tracker import UsageTracker
 
 log = logging.getLogger("codex-pet-bridge")
 
@@ -26,10 +27,24 @@ async def main():
     cfg = load_config()
     monitor = CodexMonitor(cfg)
     bridge = BleBridge(cfg)
+    usage = UsageTracker(cfg["monitor"]["session_dir"])
 
     async def on_state(state):
         log.info("monitor -> %s", state.get("state"))
         await bridge.send_state(state)
+
+    async def usage_loop():
+        while not stop_event.is_set():
+            try:
+                tokens = usage.today_tokens()
+                if tokens > 0:
+                    await bridge.send_state({"state": "IDLE", "usage_tokens": tokens})
+            except Exception as e:
+                log.warning("usage loop error: %s", e)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                pass
 
     monitor.set_callback(on_state)
 
@@ -45,6 +60,7 @@ async def main():
     await asyncio.gather(
         monitor.run(stop_event),
         bridge.run(stop_event),
+        usage_loop(),
         return_exceptions=True,
     )
 

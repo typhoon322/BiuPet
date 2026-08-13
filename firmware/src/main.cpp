@@ -26,6 +26,7 @@ static constexpr int DEMO_COUNT = sizeof(DEMO_SEQUENCE) / sizeof(DEMO_SEQUENCE[0
 static PetState lastShownState = static_cast<PetState>(0xFF);
 static bool externalControl = false;
 static char bottomText[64] = "demo: state cycle";
+static char usageText[32] = "usage: -";
 
 void drawStatusBar(PetState state) {
     tft.fillRect(0, 0, 320, 26, ST77XX_BLACK);
@@ -49,6 +50,12 @@ void drawStatusBar(PetState state) {
     tft.setTextColor(ST77XX_CYAN);
     tft.setTextSize(1);
     tft.print(bottomText);
+
+    tft.fillRect(0, 28, 320, 12, ST77XX_BLACK);
+    tft.setCursor(16, 30);
+    tft.setTextColor(ST77XX_MAGENTA);
+    tft.setTextSize(1);
+    tft.print(usageText);
 }
 
 void setup() {
@@ -105,6 +112,19 @@ void loop() {
         ble.clearTaskChanged();
         snprintf(bottomText, sizeof(bottomText), "task: %s", ble.taskText());
         lastShownState = static_cast<PetState>(0xFF); // force bar redraw
+    }
+
+    if (ble.usageChanged()) {
+        ble.clearUsageChanged();
+        const uint32_t t = ble.usageTokens();
+        if (t >= 1000000) {
+            snprintf(usageText, sizeof(usageText), "today: %.2fM tok", t / 1000000.0f);
+        } else if (t >= 1000) {
+            snprintf(usageText, sizeof(usageText), "today: %.1fk tok", t / 1000.0f);
+        } else {
+            snprintf(usageText, sizeof(usageText), "today: %u tok", t);
+        }
+        lastShownState = static_cast<PetState>(0xFF);
     }
 
     // offline / online transitions
