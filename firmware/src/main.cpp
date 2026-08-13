@@ -181,7 +181,7 @@ void drawStatusBar(PetState state) {
     tft.setTextColor(ST77XX_WHITE);
     tft.setTextSize(1);
     tft.print(balFixed);
-    drawWhale(tft, 246, 220);  // whale left of the balance number
+    drawWhale(tft, 246, 215);  // whale left of the balance, vertically centered
 }
 
 void setup() {

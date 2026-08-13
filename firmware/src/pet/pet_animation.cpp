@@ -111,8 +111,23 @@ void PetAnimation::update(uint32_t nowMs) {
             butterflyX_ = 70.0f + 180.0f * (0.5f + 0.5f * sinf(butterflyPhase_ * 0.8f));
             butterflyY_ = 48.0f + 22.0f * sinf(butterflyPhase_ * 1.6f);
             const float dx = butterflyX_ - walkX_;
-            if (fabsf(dx) > 4.0f) {
+            if (jumpT_ >= 0.0f) {
+                // airborne: parabolic jump toward the butterfly
+                jumpT_ += dt;
+                if (jumpT_ >= 0.45f) {
+                    jumpT_ = -1.0f;
+                    bob_ = 0.3f;
+                } else {
+                    const float p = jumpT_ / 0.45f;
+                    bob_ = sinf(p * PI) * 18.0f;
+                }
+                walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 18.0f * dt;  // lunge
+            } else if (fabsf(dx) <= 26.0f) {
+                jumpT_ = 0.0f;  // in range -> pounce!
+                bob_ = 0.3f;
+            } else {
                 walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 46.0f * dt;
+                bob_ = 0.3f;
             }
             if (walkX_ < 40.0f) walkX_ = 40.0f;
             if (walkX_ > 280.0f) walkX_ = 280.0f;
@@ -120,7 +135,6 @@ void PetAnimation::update(uint32_t nowMs) {
             walkPhase_ += 16.0f * dt;
             eyesOpen_ = 0.7f + 0.3f * sinf(phase * 3.0f);
             mouthStyle_ = 1;
-            bob_ = (fabsf(dx) < 26.0f) ? fabsf(sinf(phase * 6.0f)) * 3.0f : 0.3f;  // swipes
             headTiltY_ = 1.0f;
             break;
         }
@@ -132,7 +146,7 @@ void PetAnimation::update(uint32_t nowMs) {
             break;
         }
         case PetState::COMPLETED: {
-            bob_ = fabsf(sinf(phase * 3.2f)) * 10.0f;  // happy hops
+            bob_ = fabsf(sinf(phase * 3.2f)) * 8.0f;   // happy hops, holding the prize
             eyeStyle_ = 1;                         // happy
             walkPhase_ += 6.0f * dt;
             showStar_ = true;
@@ -214,9 +228,12 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     // head + face
     drawSideHead(cx, ground, m, t, bodyColor, darkColor, bellyColor, lineColor);
 
-    // butterfly to chase while working
+    // butterfly: flying while chasing, held up when caught
     if (state_ == PetState::WORKING) {
-        drawButterfly(t);
+        drawButterfly(static_cast<int16_t>(butterflyX_), static_cast<int16_t>(butterflyY_),
+                      sinf(t * 18.0f));
+    } else if (state_ == PetState::COMPLETED) {
+        drawButterfly(cx + 16 * m, ground - 26, 1.0f);  // presented in the raised paw
     }
 
     // state symbols above the head
@@ -235,10 +252,7 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     tft.endWrite();
 }
 
-void PetAnimation::drawButterfly(float t) {
-    const int16_t bx = static_cast<int16_t>(butterflyX_);
-    const int16_t by = static_cast<int16_t>(butterflyY_);
-    const float flap = sinf(t * 18.0f);
+void PetAnimation::drawButterfly(int16_t bx, int16_t by, float flap) {
     const int16_t wing = 6 + static_cast<int16_t>(flap * 2.0f);
     const uint16_t wingColor = rgb565(255, 190, 90);
     const uint16_t wingDark = rgb565(140, 100, 220);
@@ -256,10 +270,11 @@ void PetAnimation::drawButterfly(float t) {
 }
 
 void PetAnimation::drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color) {
-    const int16_t baseX = cx - 20 * m;
-    const int16_t baseY = ground - 12;
-    const int16_t tipX = baseX - 13 * m + static_cast<int16_t>(sinf(t * 2.0f + 1.0f) * 4.0f);
-    const int16_t tipY = baseY - 18 + static_cast<int16_t>(sinf(t * 3.0f) * 3.0f);
+    // attach at the rump, not the rear foot
+    const int16_t baseX = cx - 19 * m;
+    const int16_t baseY = ground - 28;
+    const int16_t tipX = baseX - 14 * m + static_cast<int16_t>(sinf(t * 2.0f + 1.0f) * 4.0f);
+    const int16_t tipY = baseY - 14 + static_cast<int16_t>(sinf(t * 3.0f) * 3.0f);
     const int segments = 5;
     for (int i = segments; i >= 0; --i) {
         const float f = static_cast<float>(i) / segments;
@@ -279,6 +294,9 @@ void PetAnimation::drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
         lx += static_cast<int16_t>(sinf(walkPhase_ + phase) * 2.0f) * m;
     } else if (state_ == PetState::WORKING) {
         lift = fmaxf(sinf(walkPhase_ * 1.5f + phase), 0.0f);
+        if (bob_ > 6.0f) {
+            lift = 1.0f;  // airborne: tuck the legs
+        }
     } else if (state_ == PetState::COMPLETED) {
         lift = (layer == 1) ? 1.0f : 0.0f;
     }

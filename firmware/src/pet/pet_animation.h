@@ -52,6 +52,7 @@ private:
     float butterflyX_ = 240.0f; // WORKING: butterfly position
     float butterflyY_ = 46.0f;
     float butterflyPhase_ = 0.0f;
+    float jumpT_ = -1.0f;       // WORKING: >=0 while jumping, -1 otherwise
 
     void drawSideHead(int16_t cx, int16_t ground, int16_t m, float t,
                       uint16_t headColor, uint16_t darkColor,
@@ -59,6 +60,6 @@ private:
     void drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
                      uint16_t color, float phase, float t);
     void drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color);
-    void drawButterfly(float t);
+    void drawButterfly(int16_t bx, int16_t by, float flap);
     void drawSymbols(int16_t cx, int16_t cy, float t);
 };
