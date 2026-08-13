@@ -12,7 +12,8 @@ log = logging.getLogger("usage-tracker")
 class UsageTracker:
     def __init__(self, session_dir: str):
         self._base = Path(session_dir)
-        self._cache: dict[str, int] = {}
+        # path -> (file size at scan, last token count); only rescans on growth
+        self._cache: dict[str, tuple[int, int]] = {}
 
     def today_tokens(self) -> int:
         total = 0
@@ -30,8 +31,8 @@ class UsageTracker:
         except OSError:
             return 0
         cached = self._cache.get(str(path))
-        if cached is not None and cached >= size:
-            return cached  # not implemented; keep simple by always scanning below
+        if cached is not None and cached[0] == size:
+            return cached[1]
         last = 0
         try:
             with path.open("r", encoding="utf-8") as f:
@@ -55,5 +56,5 @@ class UsageTracker:
                         last = tok
         except OSError:
             return 0
-        self._cache[str(path)] = size
+        self._cache[str(path)] = (size, last)
         return last

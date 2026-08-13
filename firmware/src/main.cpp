@@ -18,17 +18,6 @@ WifiServer wifi;
 DeepSeekBalance ds;
 PetStatsStore stats;
 
-static const PetState DEMO_SEQUENCE[] = {
-    PetState::IDLE,
-    PetState::WORKING,
-    PetState::WAITING,
-    PetState::COMPLETED,
-    PetState::ERROR,
-    PetState::SLEEP,
-    PetState::OFFLINE,
-};
-static constexpr int DEMO_COUNT = sizeof(DEMO_SEQUENCE) / sizeof(DEMO_SEQUENCE[0]);
-
 static PetState lastShownState = static_cast<PetState>(0xFF);
 static bool externalControl = false;
 
@@ -46,8 +35,29 @@ static void applyState(PetState newState, const char* source) {
     lastShownState = static_cast<PetState>(0xFF); // refresh status/stat lines
     Serial.printf("[PET] %s -> %s\n", source, petStateName(newState));
 }
-static char bottomText[64] = "demo: state cycle";
-static char usageText[32] = "usage: -";
+static char bottomText[64] = "";
+char usageText[32] = "usage: -";
+
+const uint16_t DS_BLUE = ((77 & 0xF8) << 8) | ((107 & 0xFC) << 3) | (254 >> 3);
+
+// small DeepSeek whale logo, drawn at (x, y) top-left of the icon
+static void drawWhale(Adafruit_ST7789& tft, int16_t x, int16_t y) {
+    // water spout
+    tft.drawLine(x + 3, y + 1, x + 4, y - 3, DS_BLUE);
+    tft.drawLine(x + 6, y, x + 5, y - 3, DS_BLUE);
+    tft.drawLine(x + 4, y - 3, x + 5, y - 3, DS_BLUE);
+    // body
+    tft.fillEllipse(x + 7, y + 5, 7, 4, DS_BLUE);
+    // head bump
+    tft.fillCircle(x + 12, y + 3, 3, DS_BLUE);
+    // tail fluke
+    tft.fillTriangle(x, y + 3, x - 5, y, x - 3, y + 5, DS_BLUE);
+    tft.fillTriangle(x, y + 4, x - 5, y + 7, x - 3, y + 3, DS_BLUE);
+    // fin
+    tft.fillTriangle(x + 6, y + 6, x + 7, y + 9, x + 9, y + 6, DS_BLUE);
+    // eye
+    tft.fillCircle(x + 13, y + 3, 1, ST77XX_BLACK);
+}
 
 // GLCD font only covers ASCII: map everything else to '?' and clamp width so
 // the task line never overlaps the DeepSeek balance in the bottom-right.
@@ -74,6 +84,12 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(2);
     tft.print("CODEX PET");
 
+    // state name (middle)
+    tft.setCursor(112, 9);
+    tft.setTextColor(ST77XX_CYAN);
+    tft.setTextSize(1);
+    tft.print(petStateName(state));
+
     const bool online = ble.isOnline() || wifi.isConnected();
     const char* onlineLabel = online ? "ONLINE" : "OFFLINE";
     tft.setCursor(196, 9);
@@ -82,13 +98,15 @@ void drawStatusBar(PetState state) {
     tft.print(onlineLabel);
 
     tft.setCursor(252, 9);
-    tft.setTextColor(ST77XX_CYAN);
-    tft.print(petStateName(state));
+    tft.setTextColor(wifi.isConnected() ? ST77XX_GREEN : ST77XX_RED);
+    tft.setTextSize(1);
+    tft.print(wifi.isConnected() ? "WiFi" : "No WiFi");
 
     tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
     const char* dsText = ds.displayText();
     const int dsW = strlen(dsText) * 6;  // default 6px font at size 1
-    int taskMaxPx = 304 - 16 - dsW - 8;
+    const int rightReserve = 18 + 6 + dsW + 6;  // whale + gap + number + margin
+    int taskMaxPx = 320 - 16 - rightReserve;
     if (taskMaxPx < 40) {
         taskMaxPx = 40;
     }
@@ -99,10 +117,11 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(1);
     tft.print(taskBuf);
 
-    tft.setCursor(320 - 8 - dsW, 220);
-    tft.setTextColor(ST77XX_YELLOW);
+    tft.setCursor(320 - 6 - 18 - 6 - dsW, 220);
+    tft.setTextColor(ST77XX_WHITE);
     tft.setTextSize(1);
     tft.print(dsText);
+    drawWhale(tft, 320 - 18, 215);
 
     const auto& st = stats.stats();
     char lvLine[48];
@@ -149,7 +168,7 @@ void setup() {
 
     stats.begin();
     pet.begin();
-    pet.setState(PetState::OFFLINE);
+    pet.setState(PetState::IDLE);
     ble.begin();
     wifi.begin();
     ds.begin();
@@ -157,10 +176,8 @@ void setup() {
 }
 
 void loop() {
-    static uint32_t lastStateSwitch = millis();
     static uint32_t lastFpsLog = millis();
     static uint32_t frames = 0;
-    static int demoIndex = 0;
     static bool lastOnline = false;
 
     const uint32_t now = millis();
@@ -232,15 +249,6 @@ void loop() {
             applyState(PetState::OFFLINE, "link");
         }
         lastShownState = static_cast<PetState>(0xFF);
-    }
-
-    // demo fallback while no BLE control yet
-    if (!externalControl) {
-        if (now - lastStateSwitch >= 6000) {
-            lastStateSwitch = now;
-            demoIndex = (demoIndex + 1) % DEMO_COUNT;
-            applyState(DEMO_SEQUENCE[demoIndex], "demo");
-        }
     }
 
     pet.update(now);

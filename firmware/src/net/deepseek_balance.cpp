@@ -47,7 +47,7 @@ void DeepSeekBalance::begin() {
     apiKey_ = key;
 
     if (apiKey_.isEmpty()) {
-        setResult("ds: no key");
+        setResult("--");
         Serial.println("[DS] no API key configured");
         return;
     }
@@ -78,7 +78,7 @@ void DeepSeekBalance::fetchAndUpdate() {
     http.setTimeout(HTTP_TIMEOUT_MS);
     esp_task_wdt_reset();
     if (!http.begin(client, BALANCE_URL)) {
-        setResult("ds: http init");
+        if (!valid_) setResult("--");
         http.end();
         return;
     }
@@ -89,9 +89,7 @@ void DeepSeekBalance::fetchAndUpdate() {
     const int code = http.GET();
     esp_task_wdt_reset();
     if (code != HTTP_CODE_OK) {
-        char msg[24];
-        snprintf(msg, sizeof(msg), "ds: http %d", code);
-        setResult(msg);
+        if (!valid_) setResult("--");
         http.end();
         return;
     }
@@ -101,24 +99,24 @@ void DeepSeekBalance::fetchAndUpdate() {
 
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {
-        setResult("ds: parse err");
+        if (!valid_) setResult("--");
         return;
     }
 
     JsonArray infos = doc["balance_infos"].as<JsonArray>();
     if (infos.isNull() || infos.size() == 0) {
-        setResult("ds: no data");
+        if (!valid_) setResult("--");
         return;
     }
     JsonObject item = infos[0];
     const char* total = item["total_balance"] | "0";
-    const char* currency = item["currency"] | "CNY";
     const bool available = doc["is_available"] | false;
 
     char out[32];
-    // ASCII only: the GLCD font has no ¥ glyph
-    snprintf(out, sizeof(out), "ds %s%s %s", available ? "" : "!", currency, total);
+    // compact value for the corner: "75.78" or "!75.78"
+    snprintf(out, sizeof(out), "%s%s", available ? "" : "!", total);
     setResult(out);
+    valid_ = true;
 }
 
 void DeepSeekBalance::setResult(const String& text) {

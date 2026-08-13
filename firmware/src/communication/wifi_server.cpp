@@ -5,8 +5,16 @@
 #include <Preferences.h>
 #include <WiFi.h>
 
+#include "ble_manager.h"
 #include "config/config.h"
+#include "net/deepseek_balance.h"
+#include "pet/pet_animation.h"
 #include "pet/pet_state.h"
+
+extern PetAnimation pet;
+extern BleManager ble;
+extern DeepSeekBalance ds;
+extern char usageText[];
 
 #if __has_include("config/secrets.h")
 #include "config/secrets.h"
@@ -67,6 +75,7 @@ void WifiServer::begin() {
 
     server_.on("/", HTTP_GET, [this]() { handleRoot(); });
     server_.on("/api/state", HTTP_POST, [this]() { handleState(); });
+    server_.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
     server_.on("/api/wifi", HTTP_GET, [this]() { handleWifiGet(); });
     server_.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
     server_.begin();
@@ -106,23 +115,56 @@ void WifiServer::update() {
 }
 
 void WifiServer::handleRoot() {
-    String html = "<html><body><h1>CodexPet</h1>"
-                  "<p>State: <b>POST /api/state</b> JSON {state,task}</p>"
-                  "<h2>WiFi</h2>"
-                  "<form id=wf><label>SSID</label><input id=s><br>"
-                  "<label>Password</label><input id=p type=password><br>"
-                  "<button>Save &amp; reconnect</button></form>"
-                  "<div id=msg></div>"
-                  "<script>"
-                  "fetch('/api/wifi').then(r=>r.json()).then(d=>{"
-                  "document.getElementById('s').value=d.ssid;"
-                  "document.getElementById('msg').textContent= d.connected?('OK '+d.ip):'not connected';});"
-                  "document.getElementById('wf').onsubmit=e=>{e.preventDefault();"
-                  "fetch('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},"
-                  "body:JSON.stringify({ssid:document.getElementById('s').value,"
-                  "pass:document.getElementById('p').value})}).then(r=>r.text()).then(t=>{"
-                  "document.getElementById('msg').textContent=t;});};"
-                  "</script></body></html>";
+    const char* html = R"HTML(<!DOCTYPE html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodexPet</title>
+<style>
+ body{background:#0e1116;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding:20px}
+ .card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:18px;margin-bottom:16px;max-width:520px}
+ h1{font-size:20px;margin:0 0 4px;color:#fff}
+ h2{font-size:15px;margin:0 0 12px;color:#8b949e;font-weight:600}
+ .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #21262d}
+ .row:last-child{border-bottom:none}
+ .ok{color:#3fb950}.bad{color:#f85149}
+ .val{font-weight:600}
+ label{display:block;margin:10px 0 4px;font-size:13px;color:#8b949e}
+ input{width:100%;box-sizing:border-box;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;padding:9px 10px;font-size:14px}
+ button{margin-top:14px;width:100%;background:#4d6bfe;border:none;border-radius:8px;color:#fff;padding:10px;font-size:15px;font-weight:600}
+ button:active{opacity:.8}
+ #msg{margin-top:10px;font-size:13px;color:#3fb950}
+</style></head><body>
+<div class="card"><h1>&#128049; CodexPet</h1><h2>宠物状态</h2>
+ <div class="row"><span>状态</span><span class="val" id="state">-</span></div>
+ <div class="row"><span>BLE</span><span class="val" id="ble">-</span></div>
+ <div class="row"><span>WiFi</span><span class="val" id="wifi">-</span></div>
+ <div class="row"><span>DeepSeek 余额</span><span class="val" id="balance">-</span></div>
+ <div class="row"><span>今日用量</span><span class="val" id="usage">-</span></div>
+ <div class="row"><span>运行时间 / 内存</span><span class="val" id="up">-</span></div>
+</div>
+<div class="card"><h2>WiFi 设置</h2>
+ <form id="wf"><label>SSID</label><input id="s" autocomplete="off">
+ <label>密码</label><input id="p" type="password">
+ <button>保存并重连</button></form>
+ <div id="msg"></div>
+</div>
+<script>
+function q(id){return document.getElementById(id)}
+function fmtUptime(s){s=+s;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+h+'h '+m+'m'}
+setInterval(function(){fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+ q('state').textContent=d.state;
+ q('ble').textContent=d.ble?'在线':'离线';
+ q('wifi').textContent=d.wifi?(d.ssid+' · '+d.ip):'No WiFi';
+ q('balance').textContent=d.balance;
+ q('usage').textContent=d.usage;
+ q('up').textContent=fmtUptime(d.uptime)+' · '+(d.heap/1024|0)+' KB';
+}).catch(function(){})},3000);
+fetch('/api/wifi').then(function(r){return r.json()}).then(function(d){q('s').value=d.ssid});
+q('wf').onsubmit=function(e){e.preventDefault();
+ fetch('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({ssid:q('s').value,pass:q('p').value})})
+  .then(function(r){return r.text()}).then(function(t){q('msg').textContent=t});};
+</script></body></html>)HTML";
     server_.send(200, "text/html", html);
 }
 
@@ -175,6 +217,22 @@ void WifiServer::handleState() {
     }
     statePending_ = true;
     server_.send(200, "text/plain", "ok");
+}
+
+void WifiServer::handleStatus() {
+    JsonDocument doc;
+    doc["state"] = petStateName(pet.state());
+    doc["ble"] = ble.isOnline();
+    doc["wifi"] = isConnected();
+    doc["ssid"] = isConnected() ? ssid_ : "";
+    doc["ip"] = isConnected() ? WiFi.localIP().toString() : "";
+    doc["balance"] = ds.displayText();
+    doc["usage"] = usageText;
+    doc["uptime"] = millis() / 1000;
+    doc["heap"] = ESP.getFreeHeap();
+    String out;
+    serializeJson(doc, out);
+    server_.send(200, "application/json", out);
 }
 
 void WifiServer::handleWifiGet() {

@@ -41,9 +41,17 @@ private:
     bool showStar_ = false;
     bool showSweat_ = false;
 
-    void drawFace();
-    void drawBody();
-    void drawTail();
-    void drawPaws();
+    // side-profile walking cat (option A)
+    float walkX_ = 64.0f;       // body center x (paces between 24..104)
+    float walkDir_ = 1.0f;      // +1 right, -1 left
+    float walkPhase_ = 0.0f;    // leg cycle phase (radians)
+    bool facingLeft_ = false;   // mirror flag for the head/legs
+
+    void drawSideHead(int16_t cx, int16_t ground, int16_t m, float t,
+                      uint16_t headColor, uint16_t darkColor,
+                      uint16_t snoutColor, uint16_t lineColor);
+    void drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
+                     uint16_t color, float t);
+    void drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color);
     void drawSymbols(int16_t cx, int16_t cy, float t);
 };

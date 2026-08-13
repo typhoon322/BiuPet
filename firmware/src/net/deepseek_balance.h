@@ -21,6 +21,7 @@ private:
     TaskHandle_t task_ = nullptr;
     SemaphoreHandle_t mutex_ = nullptr;
     String apiKey_;
-    char text_[32] = "ds: --";
-    char readBuf_[32] = "ds: --";
+    char text_[16] = "--";
+    char readBuf_[16] = "--";
+    bool valid_ = false;
 };

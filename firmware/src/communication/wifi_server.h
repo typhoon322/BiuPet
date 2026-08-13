@@ -28,6 +28,7 @@ private:
     void connectSta();
     void handleRoot();
     void handleState();
+    void handleStatus();
     void handleWifiGet();
     void handleWifiPost();
 };

@@ -1533,10 +1533,19 @@ OTA
 
 - 参考 EnvMonitor 的 on-device 实现：ESP32 后台任务每 30 秒调 `https://api.deepseek.com/user/balance`（Bearer key，WiFiClientSecure `setInsecure`），只在家里 Wi-Fi 连上时请求
 - Key 放 `firmware/src/config/secrets.h`（gitignore，`DEEPSEEK_API_KEY`），首次上电写入 NVS（`codepet`/`ds_key`），后续 OTA 不丢
-- 显示在屏幕右下角状态栏，格式 `ds CNY 75.78`（默认字体无 ¥ 字符，用 ASCII）；请求失败保留上次值并显示错误码
+- 右下角显示小鲸鱼 logo（DeepSeek 蓝）+ 余额数字；请求失败保留上次值
 - 已验证接口：`is_available=true`，余额从 DeepSeek 平台实时返回
 
 **用量统计（Codex 直连 DeepSeek）**：仍有效。DeepSeek 走 `wire_api = "responses"` 时 Codex session JSONL 照常写 `event_msg` / `token_count`，`total_token_usage.total_tokens` 由 DeepSeek 回传，`bridge/usage_tracker.py` 解析逻辑不变（实测当日 2.7M tokens）。
+
+⚠️ `usage_tracker.py` 修复：之前缓存把「文件字节数」当 token 返回（session 文件 ~1.3MB 时显示 today 1.30M tok），已改为缓存 (size, tokens)。
+
+**界面**：
+
+- 右上角 WiFi 指示灯：`WiFi` 绿 / `No WiFi` 红；中间显示状态名，左上是 ONLINE/OFFLINE（BLE）
+- 左下角不再显示 demo 文字；底部只显示 task（ASCII 化截断）和右下角鲸鱼+余额
+- 宠物动画改为**侧视行走橘猫**（方案 A）：IDLE 左右踱步，WORKING 站立打字，COMPLETED 蹦跳，SLEEP 蜷缩，ERROR 抖动
+- WebUI（`http://<esp-ip>` 或连 `CodexPet-AP` 后 `192.168.4.1`）：深色仪表盘 + `GET /api/status`（状态/BLE/WiFi/余额/用量/内存）+ WiFi 设置表单（`POST /api/wifi`）
 
 ---
 
