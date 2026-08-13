@@ -1529,14 +1529,12 @@ OTA
 
 分区表 `default_16MB.csv` 已带 `app0`/`app1` OTA 分区。
 
-**DeepSeek 余额**（`firmware/src/net/deepseek_balance.cpp`）：
-
 **DeepSeek 余额（改为 bridge 推送）**：
 
 - ⚠️ 曾经让 ESP32 自己发 HTTPS 拉余额——**不行**：本机 BLE（NimBLE）共存要求开启 WiFi modem sleep，而 ESP32 上 TLS 握手会挂死并卡住网络锁，把主循环一起拖死。EnvMonitor 是纯 WiFi 的 C3 可以关 modem sleep，所以它行我们不行
 - 现在由 **bridge 每 30 秒**拉一次 `https://api.deepseek.com/user/balance`（key 直接从 `~/.codex/config.toml` 的 `[model_providers.deepseek]` 读取，不新增凭据存储），经 BLE 命令特征推 `BAL 73.54`
-- 固件只负责显示：右下角 DeepSeek 蓝小鲸鱼 logo + 余额数字；失败显示 `--` 并保留上次值
-- ⚠️ 鲸鱼 logo 用纯 `fillRect` 像素画——`fillEllipse`/`fillTriangle` 在这套 Adafruit SPI 栈上会死锁 SPI 总线锁（曾导致主循环 eBlocked、屏幕黑屏）
+- 固件只负责显示：右下角 **EnvMonitor 同款 DeepSeek 官方鲸鱼位图**（52×32，半缩放到 26×16）+ 余额数字；**余额固定 6 字符右对齐**；失败显示 `--` 并保留上次值
+- ⚠️ 鲸鱼位图先画进小 RAM canvas 再用 `writePixels` blit——直接对 TFT 调 `fillEllipse`/`fillTriangle` 会死锁 SPI 总线锁（曾导致主循环 eBlocked、屏幕黑屏）
 
 **用量统计（Codex 直连 DeepSeek）**：仍有效。DeepSeek 走 `wire_api = "responses"` 时 Codex session JSONL 照常写 `event_msg` / `token_count`，`total_token_usage.total_tokens` 由 DeepSeek 回传，`bridge/usage_tracker.py` 解析逻辑不变（实测当日 2.7M tokens）。
 
@@ -1545,8 +1543,9 @@ OTA
 **界面**：
 
 - 右上角 WiFi 指示灯：`WiFi` 绿 / `No WiFi` 红；中间显示状态名，左上是 ONLINE/OFFLINE（BLE）
-- 左下角不再显示 demo 文字；底部只显示 task（ASCII 化截断）和右下角鲸鱼+余额
-- 宠物动画改为**侧视行走橘猫**（方案 A）：IDLE 左右踱步，WORKING 站立打字，COMPLETED 蹦跳，SLEEP 蜷缩，ERROR 抖动
+- 宠物用 **320px 全屏宽画布**：猫左右踱步横跨整个屏幕；WORKING 改为追蝴蝶（不再打字）
+- 任务文字放到底部栏上方独立一行（ASCII 化截断）；**用量移到左下角**，右下角鲸鱼+余额（固定 6 位）
+- 顶栏：`CODEX PET` | 状态名 | ONLINE/OFFLINE | WiFi/No WiFi；第二行等级/经验
 - WebUI（`http://<esp-ip>` 或连 `CodexPet-AP` 后 `192.168.4.1`）：深色仪表盘 + `GET /api/status`（状态/BLE/WiFi/余额/用量/内存）+ WiFi 设置表单（`POST /api/wifi`）
 
 ---

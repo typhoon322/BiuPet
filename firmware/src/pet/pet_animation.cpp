@@ -94,25 +94,34 @@ void PetAnimation::update(uint32_t nowMs) {
             facingLeft_ = walkDir_ < 0.0f;
             walkPhase_ += 12.0f * dt;
             walkX_ += walkDir_ * 58.0f * dt;
-            if (walkX_ > 104.0f) {
-                walkX_ = 104.0f;
+            if (walkX_ > 280.0f) {
+                walkX_ = 280.0f;
                 walkDir_ = -1.0f;
             }
-            if (walkX_ < 24.0f) {
-                walkX_ = 24.0f;
+            if (walkX_ < 40.0f) {
+                walkX_ = 40.0f;
                 walkDir_ = 1.0f;
             }
             bob_ = sinf(walkPhase_) * 0.5f;
             break;
         }
         case PetState::WORKING: {
-            // standing, focused, typing paws
-            walkPhase_ += 15.0f * dt;
+            // chase the butterfly
+            butterflyPhase_ += dt;
+            butterflyX_ = 70.0f + 180.0f * (0.5f + 0.5f * sinf(butterflyPhase_ * 0.8f));
+            butterflyY_ = 48.0f + 22.0f * sinf(butterflyPhase_ * 1.6f);
+            const float dx = butterflyX_ - walkX_;
+            if (fabsf(dx) > 4.0f) {
+                walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 46.0f * dt;
+            }
+            if (walkX_ < 40.0f) walkX_ = 40.0f;
+            if (walkX_ > 280.0f) walkX_ = 280.0f;
+            facingLeft_ = dx < 0.0f;
+            walkPhase_ += 16.0f * dt;
             eyesOpen_ = 0.7f + 0.3f * sinf(phase * 3.0f);
             mouthStyle_ = 1;
-            bob_ = sinf(phase * 6.0f) * 0.4f;
+            bob_ = (fabsf(dx) < 26.0f) ? fabsf(sinf(phase * 6.0f)) * 3.0f : 0.3f;  // swipes
             headTiltY_ = 1.0f;
-            showDots_ = true;
             break;
         }
         case PetState::WAITING: {
@@ -205,13 +214,18 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     // head + face
     drawSideHead(cx, ground, m, t, bodyColor, darkColor, bellyColor, lineColor);
 
+    // butterfly to chase while working
+    if (state_ == PetState::WORKING) {
+        drawButterfly(t);
+    }
+
     // state symbols above the head
     drawSymbols(cx + 24 * m, ground - 62, t);
 
     const uint16_t* buf = canvas_.getBuffer();
     tft.startWrite();
-    tft.setAddrWindow(x, y, SIZE, SIZE);
-    uint32_t total = SIZE * SIZE;
+    tft.setAddrWindow(x, y, CANVAS_W, CANVAS_H);
+    uint32_t total = CANVAS_W * CANVAS_H;
     uint32_t off = 0;
     while (off < total) {
         const uint32_t n = (total - off > 1024) ? 1024 : (total - off);
@@ -219,6 +233,26 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
         off += n;
     }
     tft.endWrite();
+}
+
+void PetAnimation::drawButterfly(float t) {
+    const int16_t bx = static_cast<int16_t>(butterflyX_);
+    const int16_t by = static_cast<int16_t>(butterflyY_);
+    const float flap = sinf(t * 18.0f);
+    const int16_t wing = 6 + static_cast<int16_t>(flap * 2.0f);
+    const uint16_t wingColor = rgb565(255, 190, 90);
+    const uint16_t wingDark = rgb565(140, 100, 220);
+    // upper wings
+    canvas_.fillTriangle(bx, by, bx - wing, by - 6, bx - 3, by + 2, wingColor);
+    canvas_.fillTriangle(bx, by, bx + wing, by - 6, bx + 3, by + 2, wingColor);
+    // lower wings
+    canvas_.fillTriangle(bx, by, bx - wing + 3, by + 6, bx - 2, by + 2, wingDark);
+    canvas_.fillTriangle(bx, by, bx + wing - 3, by + 6, bx + 2, by + 2, wingDark);
+    // body
+    canvas_.fillRect(bx - 1, by - 4, 2, 8, COLOR_LINE);
+    // antennae
+    canvas_.drawLine(bx, by - 4, bx - 3, by - 8, COLOR_LINE);
+    canvas_.drawLine(bx, by - 4, bx + 3, by - 8, COLOR_LINE);
 }
 
 void PetAnimation::drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color) {

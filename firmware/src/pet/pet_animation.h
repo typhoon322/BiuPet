@@ -13,10 +13,13 @@ public:
     void draw(Adafruit_ST7789& tft, int16_t x, int16_t y);
 
 private:
+    // full-screen canvas: cat walks across the whole 320px display
     static constexpr int16_t SIZE = 128;
+    static constexpr int16_t CANVAS_W = 320;
+    static constexpr int16_t CANVAS_H = 128;
 
     PetState state_ = PetState::IDLE;
-    GFXcanvas16 canvas_{SIZE, SIZE};
+    GFXcanvas16 canvas_{CANVAS_W, CANVAS_H};
     uint32_t stateStartedMs_ = 0;
     uint32_t lastFrameMs_ = 0;
     int32_t frame_ = 0;
@@ -42,10 +45,13 @@ private:
     bool showSweat_ = false;
 
     // side-profile walking cat (option A)
-    float walkX_ = 64.0f;       // body center x (paces between 24..104)
+    float walkX_ = 160.0f;      // body center x in display space (paces 40..280)
     float walkDir_ = 1.0f;      // +1 right, -1 left
     float walkPhase_ = 0.0f;    // leg cycle phase (radians)
     bool facingLeft_ = false;   // mirror flag for the head/legs
+    float butterflyX_ = 240.0f; // WORKING: butterfly position
+    float butterflyY_ = 46.0f;
+    float butterflyPhase_ = 0.0f;
 
     void drawSideHead(int16_t cx, int16_t ground, int16_t m, float t,
                       uint16_t headColor, uint16_t darkColor,
@@ -53,5 +59,6 @@ private:
     void drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
                      uint16_t color, float t);
     void drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color);
+    void drawButterfly(float t);
     void drawSymbols(int16_t cx, int16_t cy, float t);
 };

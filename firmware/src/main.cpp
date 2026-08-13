@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
+#include <pgmspace.h>
 #include <SPI.h>
 
 #include "config/config.h"
@@ -38,17 +39,67 @@ char usageText[32] = "usage: -";
 
 const uint16_t DS_BLUE = ((77 & 0xF8) << 8) | ((107 & 0xFC) << 3) | (254 >> 3);
 
-// small DeepSeek whale logo, drawn at (x, y) top-left of the icon
+// DeepSeek official whale mark (1-bit bitmap, ported from EnvMonitor),
+// brand blue #4D6BFE. Drawn into a small RAM canvas and blitted with
+// writePixels only -- shape calls on the TFT deadlock this SPI stack.
+static constexpr int kDsWhaleBmpW = 52;
+static constexpr int kDsWhaleBmpH = 32;
+static constexpr int kDsWhaleBmpStride = 7;
+
+static const uint8_t kDsWhaleBmp[] PROGMEM = {
+    0x00, 0x01, 0x80, 0x60, 0x00, 0x00, 0x00, 0x00, 0x03, 0x80, 0xFE, 0x00, 0x00, 0x00, 0xC0, 0x07,
+    0xC0, 0x7F, 0xFF, 0xE0, 0x00, 0xE0, 0x1F, 0xC0, 0x3F, 0xFF, 0xF8, 0x00, 0xFF, 0x3F, 0xC0, 0x7F,
+    0xFF, 0xFE, 0x00, 0xFF, 0xFF, 0xC0, 0xFF, 0xFF, 0xFF, 0x00, 0x7F, 0xFF, 0x83, 0xFF, 0xFF, 0xFF,
+    0x80, 0x7F, 0xFF, 0x87, 0xFF, 0xFF, 0xFF, 0xC0, 0x3F, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0xC0, 0x1F,
+    0xFE, 0x1F, 0xFF, 0xFF, 0xFF, 0xE0, 0x07, 0xFC, 0x7F, 0xFF, 0xFF, 0xFF, 0xE0, 0x00, 0xFC, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xF0, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0xF0, 0x00, 0xFF, 0xFC, 0xFF, 0xFC,
+    0x00, 0xF0, 0x00, 0x7F, 0xF3, 0xFF, 0xF0, 0x00, 0xF0, 0x00, 0x7F, 0xE3, 0xFF, 0xC0, 0x01, 0xF0,
+    0x00, 0x7F, 0xE3, 0xFF, 0x80, 0x01, 0xF0, 0x00, 0x7F, 0xC7, 0xFF, 0x00, 0x01, 0xF0, 0x00, 0x3F,
+    0xFF, 0xFE, 0x00, 0x03, 0xF0, 0x00, 0x3F, 0xFF, 0xFC, 0x00, 0x03, 0xE0, 0x00, 0x1F, 0xFF, 0xF8,
+    0x00, 0x07, 0xE0, 0x00, 0x0F, 0xFF, 0xF0, 0x00, 0x07, 0xC0, 0x00, 0x0F, 0xFF, 0xE0, 0x00, 0x0F,
+    0xC0, 0x00, 0x07, 0xFF, 0xE0, 0xE0, 0x1F, 0x80, 0x00, 0x03, 0xFF, 0xC3, 0xE0, 0x7F, 0x80, 0x00,
+    0x01, 0xFF, 0x87, 0xE0, 0xFF, 0x00, 0x00, 0x0F, 0xFF, 0x1F, 0xC3, 0xFE, 0x00, 0x00, 0x1F, 0xFC,
+    0x7F, 0xFF, 0xF8, 0x00, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xF0, 0x00, 0x00, 0x07, 0xCF, 0xFF, 0xFF,
+    0xE0, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFC, 0x00, 0x00,
+};
+
+static GFXcanvas16 whaleCanvas_{26, 16};
+
+static void precomputeWhale() {
+    whaleCanvas_.fillScreen(0x0000);
+    for (int r = 0; r < 16; ++r) {
+        for (int c = 0; c < 26; ++c) {
+            bool set = false;
+            for (int dy = 0; dy < 2 && !set; ++dy) {
+                for (int dx = 0; dx < 2 && !set; ++dx) {
+                    const int srcC = c * 2 + dx;
+                    const int srcR = r * 2 + dy;
+                    const uint8_t byte =
+                        pgm_read_byte(&kDsWhaleBmp[srcR * kDsWhaleBmpStride + srcC / 8]);
+                    if (byte & (0x80 >> (srcC % 8))) {
+                        set = true;
+                    }
+                }
+            }
+            if (set) {
+                whaleCanvas_.drawPixel(c, r, DS_BLUE);
+            }
+        }
+    }
+}
+
 static void drawWhale(Adafruit_ST7789& tft, int16_t x, int16_t y) {
-    // blocky whale: fillRect only (fillEllipse/fillTriangle wedge this SPI stack)
-    tft.fillRect(x + 3, y, 2, 4, DS_BLUE);        // spout
-    tft.fillRect(x + 5, y + 1, 1, 3, DS_BLUE);
-    tft.fillRect(x - 5, y + 4, 4, 2, DS_BLUE);    // tail
-    tft.fillRect(x - 2, y + 3, 4, 3, DS_BLUE);
-    tft.fillRect(x, y + 2, 10, 6, DS_BLUE);       // body
-    tft.fillRect(x + 8, y, 5, 5, DS_BLUE);        // head bump
-    tft.fillRect(x + 3, y + 7, 3, 2, DS_BLUE);    // fin
-    tft.fillRect(x + 9, y + 1, 1, 1, ST77XX_BLACK);  // eye
+    const uint16_t* buf = whaleCanvas_.getBuffer();
+    tft.startWrite();
+    tft.setAddrWindow(x, y, 26, 16);
+    uint32_t total = 26 * 16;
+    uint32_t off = 0;
+    while (off < total) {
+        const uint32_t n = (total - off > 1024) ? 1024 : (total - off);
+        tft.writePixels(const_cast<uint16_t*>(buf + off), n);
+        off += n;
+    }
+    tft.endWrite();
 }
 
 // GLCD font only covers ASCII: map everything else to '?' and clamp width so
@@ -94,27 +145,6 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(1);
     tft.print(wifi.isConnected() ? "WiFi" : "No WiFi");
 
-    tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
-    const char* dsText = ble.balanceText();
-    const int dsW = strlen(dsText) * 6;  // default 6px font at size 1
-    const int rightReserve = 18 + 6 + dsW + 6;  // whale + gap + number + margin
-    int taskMaxPx = 320 - 16 - rightReserve;
-    if (taskMaxPx < 40) {
-        taskMaxPx = 40;
-    }
-    char taskBuf[48];
-    sanitizeTaskLine(bottomText, taskBuf, sizeof(taskBuf), taskMaxPx);
-    tft.setCursor(16, 220);
-    tft.setTextColor(ST77XX_CYAN);
-    tft.setTextSize(1);
-    tft.print(taskBuf);
-
-    tft.setCursor(320 - 6 - 18 - 6 - dsW, 220);
-    tft.setTextColor(ST77XX_WHITE);
-    tft.setTextSize(1);
-    tft.print(dsText);
-    drawWhale(tft, 320 - 18, 215);
-
     const auto& st = stats.stats();
     char lvLine[48];
     snprintf(lvLine, sizeof(lvLine), "Lv.%u exp %u/%u tasks:%u",
@@ -125,11 +155,33 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(1);
     tft.print(lvLine);
 
-    tft.fillRect(0, 38, 320, 10, ST77XX_BLACK);
-    tft.setCursor(16, 39);
+    // task line just above the bottom bar
+    tft.fillRect(0, 198, 320, 14, ST77XX_BLACK);
+    char taskBuf[48];
+    sanitizeTaskLine(bottomText, taskBuf, sizeof(taskBuf), 296);
+    tft.setCursor(16, 200);
+    tft.setTextColor(ST77XX_CYAN);
+    tft.setTextSize(1);
+    tft.print(taskBuf);
+
+    // bottom bar: usage bottom-left, whale + balance bottom-right
+    tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
+    tft.setCursor(16, 220);
     tft.setTextColor(ST77XX_MAGENTA);
     tft.setTextSize(1);
     tft.print(usageText);
+
+    // balance: fixed 6-char width, right-aligned
+    char bal6[7];
+    strncpy(bal6, ble.balanceText(), 6);
+    bal6[6] = '\0';
+    char balFixed[7];
+    snprintf(balFixed, sizeof(balFixed), "%6s", bal6);
+    tft.setCursor(276, 220);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setTextSize(1);
+    tft.print(balFixed);
+    drawWhale(tft, 246, 220);  // whale left of the balance number
 }
 
 void setup() {
@@ -158,6 +210,7 @@ void setup() {
     tft.fillScreen(ST77XX_BLACK);
     tft.setTextWrap(false);
 
+    precomputeWhale();
     stats.begin();
     pet.begin();
     pet.setState(PetState::IDLE);
@@ -246,7 +299,7 @@ void loop() {
         drawStatusBar(pet.state());
     }
 
-    pet.draw(tft, (320 - 128) / 2, (240 - 128) / 2 + 8);
+    pet.draw(tft, 0, 64);
     frames++;
 
     if (now - lastFpsLog >= 5000) {
