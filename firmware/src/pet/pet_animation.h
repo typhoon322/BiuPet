@@ -57,7 +57,7 @@ private:
                       uint16_t headColor, uint16_t darkColor,
                       uint16_t snoutColor, uint16_t lineColor);
     void drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
-                     uint16_t color, float t);
+                     uint16_t color, float phase, float t);
     void drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color);
     void drawButterfly(float t);
     void drawSymbols(int16_t cx, int16_t cy, float t);

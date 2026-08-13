@@ -90,10 +90,10 @@ void PetAnimation::update(uint32_t nowMs) {
 
     switch (state_) {
         case PetState::IDLE: {
-            // pace left-right across the desk
+            // leisurely catwalk: slow steps, diagonal gait
             facingLeft_ = walkDir_ < 0.0f;
-            walkPhase_ += 12.0f * dt;
-            walkX_ += walkDir_ * 58.0f * dt;
+            walkPhase_ += 4.6f * dt;              // ~0.73 Hz step cycle
+            walkX_ += walkDir_ * 26.0f * dt;      // ~26 px/s
             if (walkX_ > 280.0f) {
                 walkX_ = 280.0f;
                 walkDir_ = -1.0f;
@@ -102,7 +102,7 @@ void PetAnimation::update(uint32_t nowMs) {
                 walkX_ = 40.0f;
                 walkDir_ = 1.0f;
             }
-            bob_ = sinf(walkPhase_) * 0.5f;
+            bob_ = sinf(walkPhase_) * 0.35f;      // gentle body bob
             break;
         }
         case PetState::WORKING: {
@@ -190,8 +190,8 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     drawSideTail(cx, ground, m, t, darkColor);
 
     // far legs (darker, behind the body)
-    drawSideLeg(cx - 16 * m, ground, m, 2, darkColor, t);
-    drawSideLeg(cx + 5 * m, ground, m, 2, darkColor, t);
+    drawSideLeg(cx - 16 * m, ground, m, 2, darkColor, 0.0f, t);     // far back (with near front)
+    drawSideLeg(cx + 5 * m, ground, m, 2, darkColor, PI, t);        // far front (with near back)
 
     // body
     const int16_t bodyW = (state_ == PetState::SLEEP) ? 62 : 44;
@@ -208,8 +208,8 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     }
 
     // near legs (drawn over the body so they look connected)
-    drawSideLeg(cx - 12 * m, ground, m, 1, bodyColor, t);
-    drawSideLeg(cx + 10 * m, ground, m, 1, bodyColor, t);
+    drawSideLeg(cx - 12 * m, ground, m, 1, bodyColor, PI, t);       // near back
+    drawSideLeg(cx + 10 * m, ground, m, 1, bodyColor, 0.0f, t);     // near front
 
     // head + face
     drawSideHead(cx, ground, m, t, bodyColor, darkColor, bellyColor, lineColor);
@@ -271,19 +271,18 @@ void PetAnimation::drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, 
 }
 
 void PetAnimation::drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
-                               uint16_t color, float t) {
+                               uint16_t color, float phase, float t) {
     (void)t;
     float lift = 0.0f;
-    const float ph = walkPhase_;
     if (state_ == PetState::IDLE) {
-        lift = fmaxf(sinf(ph + (layer == 1 ? 0.0f : PI)), 0.0f);
-        lx += static_cast<int16_t>(sinf(ph + PI * 0.5f) * 3.0f) * m;
+        lift = fmaxf(sinf(walkPhase_ + phase), 0.0f);
+        lx += static_cast<int16_t>(sinf(walkPhase_ + phase) * 2.0f) * m;
     } else if (state_ == PetState::WORKING) {
-        lift = fmaxf(sinf(ph * 1.5f + (layer == 1 ? 0.0f : PI)), 0.0f);
+        lift = fmaxf(sinf(walkPhase_ * 1.5f + phase), 0.0f);
     } else if (state_ == PetState::COMPLETED) {
         lift = (layer == 1) ? 1.0f : 0.0f;
     }
-    const int16_t liftPx = static_cast<int16_t>(lift * 5.0f);
+    const int16_t liftPx = static_cast<int16_t>(lift * 3.0f);
     fillRoundRectAuto(canvas_, lx - 4, ground - 12 + liftPx, 8, 13 - liftPx, 4, color);
     if (layer == 1) {
         const uint16_t tick = (state_ == PetState::OFFLINE) ? COLOR_GRAY_DK : COLOR_BODY_DK;
