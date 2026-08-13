@@ -1,19 +1,16 @@
 #include "wifi_server.h"
 
-#include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <WiFi.h>
 
 #include "ble_manager.h"
 #include "config/config.h"
-#include "net/deepseek_balance.h"
 #include "pet/pet_animation.h"
 #include "pet/pet_state.h"
 
 extern PetAnimation pet;
 extern BleManager ble;
-extern DeepSeekBalance ds;
 extern char usageText[];
 
 #if __has_include("config/secrets.h")
@@ -64,8 +61,7 @@ void WifiServer::connectSta() {
 void WifiServer::begin() {
     loadCredentials();
 
-    // EnvMonitor-style: AP always on, STA connects in the background with
-    // backoff retries, so the pet never loses its setup/control surface.
+    // AP always on + STA in the background with backoff retries.
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(AP_SSID, AP_PASS);
     Serial.printf("[WIFI] AP %s IP %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
@@ -80,37 +76,31 @@ void WifiServer::begin() {
     server_.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
     server_.begin();
 
-    ArduinoOTA.setHostname("codex-pet");
-    ArduinoOTA.onStart([]() { Serial.println("[OTA] update start"); });
-    ArduinoOTA.onEnd([]() { Serial.println("[OTA] update end"); });
-    ArduinoOTA.onError([](ota_error_t err) {
-        Serial.printf("[OTA] error %d\n", static_cast<int>(err));
-    });
-    ArduinoOTA.begin();
 }
 
 bool WifiServer::isConnected() const {
-    return WiFi.status() == WL_CONNECTED;
+    return staEnabled_ && WiFi.status() == WL_CONNECTED;
 }
 
 void WifiServer::update() {
     const uint32_t now = millis();
 
-    // STA reconnect with backoff, mirroring EnvMonitor's wifi_manager.
-    const wl_status_t st = WiFi.status();
-    if (st == WL_CONNECTED) {
-        backoffMs_ = BACKOFF_MIN_MS;
-        nextRetryMs_ = now + BACKOFF_MIN_MS;
-    } else if (st != WL_IDLE_STATUS && st != WL_SCAN_COMPLETED) {
-        if (now >= nextRetryMs_) {
-            Serial.printf("[WIFI] status=%d, retrying STA\n", static_cast<int>(st));
-            connectSta();
-            nextRetryMs_ = now + backoffMs_;
-            backoffMs_ = (backoffMs_ * 2 < BACKOFF_MAX_MS) ? backoffMs_ * 2 : BACKOFF_MAX_MS;
+    if (staEnabled_) {
+        // STA reconnect with backoff, mirroring EnvMonitor's wifi_manager.
+        const wl_status_t st = WiFi.status();
+        if (st == WL_CONNECTED) {
+            backoffMs_ = BACKOFF_MIN_MS;
+            nextRetryMs_ = now + BACKOFF_MIN_MS;
+        } else if (st != WL_IDLE_STATUS && st != WL_SCAN_COMPLETED) {
+            if (now >= nextRetryMs_) {
+                Serial.printf("[WIFI] status=%d, retrying STA\n", static_cast<int>(st));
+                connectSta();
+                nextRetryMs_ = now + backoffMs_;
+                backoffMs_ = (backoffMs_ * 2 < BACKOFF_MAX_MS) ? backoffMs_ * 2 : BACKOFF_MAX_MS;
+            }
         }
     }
 
-    ArduinoOTA.handle();
     server_.handleClient();
 }
 
@@ -226,7 +216,7 @@ void WifiServer::handleStatus() {
     doc["wifi"] = isConnected();
     doc["ssid"] = isConnected() ? ssid_ : "";
     doc["ip"] = isConnected() ? WiFi.localIP().toString() : "";
-    doc["balance"] = ds.displayText();
+    doc["balance"] = ble.balanceText();
     doc["usage"] = usageText;
     doc["uptime"] = millis() / 1000;
     doc["heap"] = ESP.getFreeHeap();

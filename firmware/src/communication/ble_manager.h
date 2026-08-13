@@ -26,6 +26,10 @@ public:
     bool usageChanged() const { return usageChanged_; }
     void clearUsageChanged() { usageChanged_ = false; }
 
+    const char* balanceText() const { return balanceText_; }
+    bool balanceChanged() const { return balanceChanged_; }
+    void clearBalanceChanged() { balanceChanged_ = false; }
+
     static BleManager* instance() { return s_instance; }
     void onConnected();
     void onDisconnected();
@@ -43,5 +47,7 @@ private:
     bool taskChanged_ = false;
     uint32_t usageTokens_ = 0;
     bool usageChanged_ = false;
+    char balanceText_[16] = "--";
+    bool balanceChanged_ = false;
     uint8_t lastLoggedState_ = 0xFF;
 };

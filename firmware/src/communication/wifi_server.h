@@ -21,6 +21,7 @@ private:
     String pendingTask_;
     String ssid_;
     String pass_;
+    bool staEnabled_ = true;
     uint32_t nextRetryMs_ = 0;
     uint32_t backoffMs_ = 3000;
 

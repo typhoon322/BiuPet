@@ -32,6 +32,7 @@ class BleBridge:
         self._command_char: str = cfg["device"].get("command_char_uuid", "")
         self._last_task = ""
         self._last_usage = -1
+        self._last_balance = ""
         self._pending: asyncio.Queue[dict] = asyncio.Queue()
         self._last_state = "IDLE"
 
@@ -58,6 +59,7 @@ class BleBridge:
             log.info("Connected")
             # fresh link: re-send usage/task on next update
             self._last_usage = -1
+            self._last_balance = ""
             self._last_task = ""
             while client.is_connected and not stop_event.is_set():
                 try:
@@ -97,6 +99,20 @@ class BleBridge:
             log.info("usage sent: %s tokens", tokens)
         except Exception as e:
             log.warning("usage send failed: %s", e)
+
+    async def send_balance(self, value: str):
+        """Send the DeepSeek balance over the command char (e.g. "BAL 75.78")."""
+        if value == self._last_balance:
+            return
+        self._last_balance = value
+        if self._client is None or not self._client.is_connected or not self._command_char:
+            return
+        try:
+            msg = f"BAL {value}".encode("utf-8")[:63]
+            await self._client.write_gatt_char(self._command_char, msg, response=True)
+            log.info("balance sent: %s", value)
+        except Exception as e:
+            log.warning("balance send failed: %s", e)
 
     async def _send_packet(self, state: dict):
         if self._client is None or not self._client.is_connected:

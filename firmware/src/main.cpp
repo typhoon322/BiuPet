@@ -8,14 +8,12 @@
 #include "pet/pet_animation.h"
 #include "communication/ble_manager.h"
 #include "communication/wifi_server.h"
-#include "net/deepseek_balance.h"
 #include "storage/pet_stats.h"
 
 Adafruit_ST7789 tft(PIN_LCD_CS, PIN_LCD_DC, PIN_LCD_RST);
 PetAnimation pet;
 BleManager ble;
 WifiServer wifi;
-DeepSeekBalance ds;
 PetStatsStore stats;
 
 static PetState lastShownState = static_cast<PetState>(0xFF);
@@ -42,21 +40,15 @@ const uint16_t DS_BLUE = ((77 & 0xF8) << 8) | ((107 & 0xFC) << 3) | (254 >> 3);
 
 // small DeepSeek whale logo, drawn at (x, y) top-left of the icon
 static void drawWhale(Adafruit_ST7789& tft, int16_t x, int16_t y) {
-    // water spout
-    tft.drawLine(x + 3, y + 1, x + 4, y - 3, DS_BLUE);
-    tft.drawLine(x + 6, y, x + 5, y - 3, DS_BLUE);
-    tft.drawLine(x + 4, y - 3, x + 5, y - 3, DS_BLUE);
-    // body
-    tft.fillEllipse(x + 7, y + 5, 7, 4, DS_BLUE);
-    // head bump
-    tft.fillCircle(x + 12, y + 3, 3, DS_BLUE);
-    // tail fluke
-    tft.fillTriangle(x, y + 3, x - 5, y, x - 3, y + 5, DS_BLUE);
-    tft.fillTriangle(x, y + 4, x - 5, y + 7, x - 3, y + 3, DS_BLUE);
-    // fin
-    tft.fillTriangle(x + 6, y + 6, x + 7, y + 9, x + 9, y + 6, DS_BLUE);
-    // eye
-    tft.fillCircle(x + 13, y + 3, 1, ST77XX_BLACK);
+    // blocky whale: fillRect only (fillEllipse/fillTriangle wedge this SPI stack)
+    tft.fillRect(x + 3, y, 2, 4, DS_BLUE);        // spout
+    tft.fillRect(x + 5, y + 1, 1, 3, DS_BLUE);
+    tft.fillRect(x - 5, y + 4, 4, 2, DS_BLUE);    // tail
+    tft.fillRect(x - 2, y + 3, 4, 3, DS_BLUE);
+    tft.fillRect(x, y + 2, 10, 6, DS_BLUE);       // body
+    tft.fillRect(x + 8, y, 5, 5, DS_BLUE);        // head bump
+    tft.fillRect(x + 3, y + 7, 3, 2, DS_BLUE);    // fin
+    tft.fillRect(x + 9, y + 1, 1, 1, ST77XX_BLACK);  // eye
 }
 
 // GLCD font only covers ASCII: map everything else to '?' and clamp width so
@@ -84,8 +76,8 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(2);
     tft.print("CODEX PET");
 
-    // state name (middle)
-    tft.setCursor(112, 9);
+    // state name (middle; "CODEX PET" at size 2 ends at x=136)
+    tft.setCursor(140, 9);
     tft.setTextColor(ST77XX_CYAN);
     tft.setTextSize(1);
     tft.print(petStateName(state));
@@ -103,7 +95,7 @@ void drawStatusBar(PetState state) {
     tft.print(wifi.isConnected() ? "WiFi" : "No WiFi");
 
     tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
-    const char* dsText = ds.displayText();
+    const char* dsText = ble.balanceText();
     const int dsW = strlen(dsText) * 6;  // default 6px font at size 1
     const int rightReserve = 18 + 6 + dsW + 6;  // whale + gap + number + margin
     int taskMaxPx = 320 - 16 - rightReserve;
@@ -169,9 +161,8 @@ void setup() {
     stats.begin();
     pet.begin();
     pet.setState(PetState::IDLE);
-    ble.begin();
     wifi.begin();
-    ds.begin();
+    ble.begin();
     Serial.println("[PET] ready");
 }
 
@@ -232,12 +223,9 @@ void loop() {
         lastShownState = static_cast<PetState>(0xFF);
     }
 
-    // DeepSeek balance refresh (bottom-right corner)
-    static char lastBalance[32] = "";
-    const char* dsText = ds.displayText();
-    if (strcmp(lastBalance, dsText) != 0) {
-        strncpy(lastBalance, dsText, sizeof(lastBalance) - 1);
-        lastBalance[sizeof(lastBalance) - 1] = '\0';
+    // DeepSeek balance arrives over BLE (bridge fetches it every 30s)
+    if (ble.balanceChanged()) {
+        ble.clearBalanceChanged();
         lastShownState = static_cast<PetState>(0xFF);  // redraw status bar
     }
 

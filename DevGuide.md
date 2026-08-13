@@ -1531,10 +1531,12 @@ OTA
 
 **DeepSeek 余额**（`firmware/src/net/deepseek_balance.cpp`）：
 
-- 参考 EnvMonitor 的 on-device 实现：ESP32 后台任务每 30 秒调 `https://api.deepseek.com/user/balance`（Bearer key，WiFiClientSecure `setInsecure`），只在家里 Wi-Fi 连上时请求
-- Key 放 `firmware/src/config/secrets.h`（gitignore，`DEEPSEEK_API_KEY`），首次上电写入 NVS（`codepet`/`ds_key`），后续 OTA 不丢
-- 右下角显示小鲸鱼 logo（DeepSeek 蓝）+ 余额数字；请求失败保留上次值
-- 已验证接口：`is_available=true`，余额从 DeepSeek 平台实时返回
+**DeepSeek 余额（改为 bridge 推送）**：
+
+- ⚠️ 曾经让 ESP32 自己发 HTTPS 拉余额——**不行**：本机 BLE（NimBLE）共存要求开启 WiFi modem sleep，而 ESP32 上 TLS 握手会挂死并卡住网络锁，把主循环一起拖死。EnvMonitor 是纯 WiFi 的 C3 可以关 modem sleep，所以它行我们不行
+- 现在由 **bridge 每 30 秒**拉一次 `https://api.deepseek.com/user/balance`（key 直接从 `~/.codex/config.toml` 的 `[model_providers.deepseek]` 读取，不新增凭据存储），经 BLE 命令特征推 `BAL 73.54`
+- 固件只负责显示：右下角 DeepSeek 蓝小鲸鱼 logo + 余额数字；失败显示 `--` 并保留上次值
+- ⚠️ 鲸鱼 logo 用纯 `fillRect` 像素画——`fillEllipse`/`fillTriangle` 在这套 Adafruit SPI 栈上会死锁 SPI 总线锁（曾导致主循环 eBlocked、屏幕黑屏）
 
 **用量统计（Codex 直连 DeepSeek）**：仍有效。DeepSeek 走 `wire_api = "responses"` 时 Codex session JSONL 照常写 `event_msg` / `token_count`，`total_token_usage.total_tokens` 由 DeepSeek 回传，`bridge/usage_tracker.py` 解析逻辑不变（实测当日 2.7M tokens）。
 
