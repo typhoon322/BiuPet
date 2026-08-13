@@ -1341,45 +1341,45 @@ Mac Bridge 连接
 
 ### A. BLE
 
-- [ ] ESP32 能被 Mac 发现
-- [ ] Bridge 能自动连接
-- [ ] 断开后能自动重连
-- [ ] ESP32 能检测离线
+- [x] ESP32 能被 Mac 发现
+- [x] Bridge 能自动连接
+- [x] 断开后能自动重连
+- [x] ESP32 能检测离线
 
 ### B. 状态
 
-- [ ] IDLE
-- [ ] WORKING
-- [ ] WAITING
-- [ ] COMPLETED
-- [ ] ERROR
-- [ ] OFFLINE
+- [x] IDLE
+- [x] WORKING
+- [x] WAITING
+- [x] COMPLETED
+- [x] ERROR
+- [x] OFFLINE
 
 全部正确显示。
 
 ### C. 动画
 
-- [ ] idle
-- [ ] working
-- [ ] waiting
-- [ ] completed
-- [ ] error
-- [ ] offline
+- [x] idle
+- [x] working
+- [x] waiting
+- [x] completed
+- [x] error
+- [x] offline
 
 ### D. 性能
 
-- [ ] FPS ≥ 20
-- [ ] 无明显卡顿
-- [ ] 无持续内存泄漏
+- [x] FPS ≥ 20
+- [x] 无明显卡顿
+- [x] 无持续内存泄漏
 - [ ] 连续运行 24h 不死机
 
 ### E. Bridge
 
-- [ ] Codex 活动能被检测
-- [ ] 状态能转换
-- [ ] 状态能发送
-- [ ] Bridge 崩溃后可重新启动
-- [ ] ESP32 不依赖 Bridge 才能运行
+- [x] Codex 活动能被检测
+- [x] 状态能转换
+- [x] 状态能发送
+- [x] Bridge 崩溃后可重新启动
+- [x] ESP32 不依赖 Bridge 才能运行
 
 ---
 
@@ -1387,7 +1387,7 @@ Mac Bridge 连接
 
 **严格按照这个顺序，不要一开始就做一堆功能。**
 
-### Phase 1
+### Phase 1 ✅ 已完成
 
 ESP32：
 
@@ -1403,7 +1403,7 @@ SPI LCD
 
 ---
 
-### Phase 2
+### Phase 2 ✅ 已完成
 
 ESP32：
 
@@ -1433,7 +1433,7 @@ ESP32
 
 ---
 
-### Phase 3
+### Phase 3 ✅ 已完成
 
 做：
 
@@ -1452,7 +1452,7 @@ ERROR
 
 ---
 
-### Phase 4
+### Phase 4 ✅ 已完成
 
 合并：
 
@@ -1470,7 +1470,7 @@ ESP32
 
 ---
 
-### Phase 5
+### Phase 5 ✅ 已完成
 
 增加：
 
@@ -1482,7 +1482,7 @@ TASK TEXT
 
 ---
 
-### Phase 6
+### Phase 6 ✅ 已完成
 
 再做：
 
@@ -1492,7 +1492,7 @@ Usage
 
 ---
 
-### Phase 7
+### Phase 7 🚧 进行中（养成基础已完成，音效/震动/Wi-Fi/OTA 待做）
 
 最后才做：
 

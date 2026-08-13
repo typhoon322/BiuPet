@@ -7,10 +7,12 @@
 #include "pet/pet_state.h"
 #include "pet/pet_animation.h"
 #include "communication/ble_manager.h"
+#include "storage/pet_stats.h"
 
 Adafruit_ST7789 tft(PIN_LCD_CS, PIN_LCD_DC, PIN_LCD_RST);
 PetAnimation pet;
 BleManager ble;
+PetStatsStore stats;
 
 static const PetState DEMO_SEQUENCE[] = {
     PetState::IDLE,
@@ -25,6 +27,21 @@ static constexpr int DEMO_COUNT = sizeof(DEMO_SEQUENCE) / sizeof(DEMO_SEQUENCE[0
 
 static PetState lastShownState = static_cast<PetState>(0xFF);
 static bool externalControl = false;
+
+static void applyState(PetState newState, const char* source) {
+    const PetState prev = pet.state();
+    if (prev == newState) {
+        return;
+    }
+    pet.setState(newState);
+    if (newState == PetState::COMPLETED) {
+        stats.onTaskCompleted();
+    } else if (newState == PetState::ERROR) {
+        stats.onError();
+    }
+    lastShownState = static_cast<PetState>(0xFF); // refresh status/stat lines
+    Serial.printf("[PET] %s -> %s\n", source, petStateName(newState));
+}
 static char bottomText[64] = "demo: state cycle";
 static char usageText[32] = "usage: -";
 
@@ -51,8 +68,18 @@ void drawStatusBar(PetState state) {
     tft.setTextSize(1);
     tft.print(bottomText);
 
-    tft.fillRect(0, 28, 320, 12, ST77XX_BLACK);
-    tft.setCursor(16, 30);
+    const auto& st = stats.stats();
+    char lvLine[48];
+    snprintf(lvLine, sizeof(lvLine), "Lv.%u exp %u/%u tasks:%u",
+             st.level, stats.expInLevel(), PetStatsStore::EXP_PER_LEVEL, st.tasksCompleted);
+    tft.fillRect(0, 28, 320, 10, ST77XX_BLACK);
+    tft.setCursor(16, 29);
+    tft.setTextColor(ST77XX_GREEN);
+    tft.setTextSize(1);
+    tft.print(lvLine);
+
+    tft.fillRect(0, 38, 320, 10, ST77XX_BLACK);
+    tft.setCursor(16, 39);
     tft.setTextColor(ST77XX_MAGENTA);
     tft.setTextSize(1);
     tft.print(usageText);
@@ -84,6 +111,7 @@ void setup() {
     tft.fillScreen(ST77XX_BLACK);
     tft.setTextWrap(false);
 
+    stats.begin();
     pet.begin();
     pet.setState(PetState::OFFLINE);
     ble.begin();
@@ -100,12 +128,20 @@ void loop() {
     const uint32_t now = millis();
     ble.update(now);
 
+    // working-time accumulation
+    static uint32_t lastWorkTick = now;
+    if (pet.state() == PetState::WORKING && now - lastWorkTick >= 1000) {
+        stats.addWorkingSeconds((now - lastWorkTick) / 1000);
+        lastWorkTick = now;
+    } else if (now - lastWorkTick >= 1000) {
+        lastWorkTick = now;
+    }
+
     // BLE-driven state
     if (ble.hasNewPacket()) {
         PetPacket pkt = ble.takePacket();
         externalControl = true;
-        pet.setState(pkt.state);
-        Serial.printf("[PET] BLE state -> %s\n", petStateName(pkt.state));
+        applyState(pkt.state, "ble");
     }
 
     if (ble.taskChanged()) {
@@ -132,8 +168,7 @@ void loop() {
     if (online != lastOnline) {
         lastOnline = online;
         if (!online && externalControl) {
-            pet.setState(PetState::OFFLINE);
-            Serial.println("[PET] offline");
+            applyState(PetState::OFFLINE, "link");
         }
         lastShownState = static_cast<PetState>(0xFF);
     }
@@ -143,8 +178,7 @@ void loop() {
         if (now - lastStateSwitch >= 6000) {
             lastStateSwitch = now;
             demoIndex = (demoIndex + 1) % DEMO_COUNT;
-            pet.setState(DEMO_SEQUENCE[demoIndex]);
-            Serial.printf("[PET] demo state -> %s\n", petStateName(DEMO_SEQUENCE[demoIndex]));
+            applyState(DEMO_SEQUENCE[demoIndex], "demo");
         }
     }
 
