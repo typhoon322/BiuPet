@@ -12,3 +12,9 @@
 #ifndef WIFI_PASS
 #define WIFI_PASS "your-wifi-password"
 #endif
+
+// Optional DeepSeek API key for the on-device balance display.
+// Get it from https://platform.deepseek.com/api_keys
+#ifndef DEEPSEEK_API_KEY
+#define DEEPSEEK_API_KEY ""
+#endif

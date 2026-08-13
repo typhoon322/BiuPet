@@ -9,12 +9,14 @@
 #include "pet/pet_animation.h"
 #include "communication/ble_manager.h"
 #include "communication/wifi_server.h"
+#include "net/deepseek_balance.h"
 #include "storage/pet_stats.h"
 
 Adafruit_ST7789 tft(PIN_LCD_CS, PIN_LCD_DC, PIN_LCD_RST);
 PetAnimation pet;
 BleManager ble;
 WifiServer wifi;
+DeepSeekBalance ds;
 PetStatsStore stats;
 
 static const PetState DEMO_SEQUENCE[] = {
@@ -67,10 +69,32 @@ void drawStatusBar(PetState state) {
     tft.print(petStateName(state));
 
     tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
+    const char* dsText = ds.displayText();
+    const int dsW = strlen(dsText) * 6;  // default 6px font at size 1
+    int taskMaxPx = 304 - 16 - dsW - 8;
+    if (taskMaxPx < 40) {
+        taskMaxPx = 40;
+    }
+    char taskBuf[48];
+    size_t taskLen = strlen(bottomText);
+    if (taskLen > sizeof(taskBuf) - 1) {
+        taskLen = sizeof(taskBuf) - 1;
+    }
+    memcpy(taskBuf, bottomText, taskLen);
+    taskBuf[taskLen] = '\0';
+    const int taskChars = taskMaxPx / 6;
+    if (taskLen > static_cast<size_t>(taskChars)) {
+        taskBuf[taskChars] = '\0';
+    }
     tft.setCursor(16, 220);
     tft.setTextColor(ST77XX_CYAN);
     tft.setTextSize(1);
-    tft.print(bottomText);
+    tft.print(taskBuf);
+
+    tft.setCursor(320 - 8 - dsW, 220);
+    tft.setTextColor(ST77XX_YELLOW);
+    tft.setTextSize(1);
+    tft.print(dsText);
 
     const auto& st = stats.stats();
     char lvLine[48];
@@ -126,6 +150,7 @@ void setup() {
     pet.setState(PetState::OFFLINE);
     ble.begin();
     wifi.begin();
+    ds.begin();
     Serial.println("[PET] ready");
 }
 
@@ -153,11 +178,6 @@ void loop() {
         }
         wifi.clearPendingState();
     }
-    if (wifi.hasPendingSkin()) {
-        pet.refreshExternalFrames();
-        wifi.clearPendingSkin();
-    }
-
     // working-time accumulation
     static uint32_t lastWorkTick = now;
     if (pet.state() == PetState::WORKING && now - lastWorkTick >= 1000) {
@@ -191,6 +211,15 @@ void loop() {
             snprintf(usageText, sizeof(usageText), "today: %u tok", t);
         }
         lastShownState = static_cast<PetState>(0xFF);
+    }
+
+    // DeepSeek balance refresh (bottom-right corner)
+    static char lastBalance[32] = "";
+    const char* dsText = ds.displayText();
+    if (strcmp(lastBalance, dsText) != 0) {
+        strncpy(lastBalance, dsText, sizeof(lastBalance) - 1);
+        lastBalance[sizeof(lastBalance) - 1] = '\0';
+        lastShownState = static_cast<PetState>(0xFF);  // redraw status bar
     }
 
     // offline / online transitions

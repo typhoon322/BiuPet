@@ -1492,7 +1492,7 @@ Usage
 
 ---
 
-### Phase 7 🚧 进行中（养成基础已完成，Wi-Fi 皮肤上传 + OTA 已完成，音效/震动/WebUI 待做）
+### Phase 7 🚧 进行中（养成基础、Wi-Fi/OTA、DeepSeek 余额已完成，音效/震动/WebUI 待做）
 
 最后才做：
 
@@ -1515,10 +1515,10 @@ OTA
 - 连不上 15 秒后自动切 SoftAP：`CodexPet-AP` / `codexpet123`（192.168.4.1），每 60 秒重试家里网络
 - HTTP API：
   - `POST /api/state` JSON `{"state":"WORKING","task":"..."}`，state 也接受数字 0..6
-  - `POST /api/frame?state=0..6&index=N`，body 为 128×128 RGB565 的 base64
-  - `POST /api/delay?state=N`，body 为该状态每帧间隔 ms（20..5000）
-  - `POST /api/clear?state=N` 清空该状态的皮肤
-- 皮肤帧存 LittleFS `/skin/<state>/<index>.rgb565`，有皮肤的动画优先于内置程序动画
+  - `POST /api/frame?state=0..6&index=N`，body 为 128×128 RGB565 的 base64（接口保留）
+  - `POST /api/delay?state=N`，body 为该状态每帧间隔 ms（20..5000，接口保留）
+  - `POST /api/clear?state=N` 清空该状态的皮肤（接口保留）
+- 皮肤帧存 LittleFS `/skin/<state>/<index>.rgb565`；**当前固件默认显示内置程序化橘猫**，皮肤上传接口保留但不再覆盖显示（需要时可把 draw 里的皮肤路径重新接回）
 - `convert_gif.py` 会按 GIF 原始帧率生成 `delay_ms.txt`，`skin_upload.py` 自动上传，保证动画速度与原图一致
 
 **资源转换/上传脚本**（`bridge/convert_gif.py`、`bridge/skin_upload.py`）：
@@ -1540,6 +1540,15 @@ OTA
 ```
 
 分区表 `default_16MB.csv` 已带 `app0`/`app1` OTA 分区，LittleFS 3.3MB 足够放皮肤。
+
+**DeepSeek 余额**（`firmware/src/net/deepseek_balance.cpp`）：
+
+- 参考 EnvMonitor 的 on-device 实现：ESP32 后台任务每 30 秒调 `https://api.deepseek.com/user/balance`（Bearer key，WiFiClientSecure `setInsecure`），只在家里 Wi-Fi 连上时请求
+- Key 放 `firmware/src/config/secrets.h`（gitignore，`DEEPSEEK_API_KEY`），首次上电写入 NVS（`codepet`/`ds_key`），后续 OTA 不丢
+- 显示在屏幕右下角状态栏，格式 `ds CNY 75.78`（默认字体无 ¥ 字符，用 ASCII）；请求失败保留上次值并显示错误码
+- 已验证接口：`is_available=true`，余额从 DeepSeek 平台实时返回
+
+**用量统计（Codex 直连 DeepSeek）**：仍有效。DeepSeek 走 `wire_api = "responses"` 时 Codex session JSONL 照常写 `event_msg` / `token_count`，`total_token_usage.total_tokens` 由 DeepSeek 回传，`bridge/usage_tracker.py` 解析逻辑不变（实测当日 2.7M tokens）。
 
 ---
 
