@@ -37,3 +37,6 @@ build/
 *.pem
 secrets.h
 config.local.yaml
+firmware/lib/
+.pio/
+.venv/
