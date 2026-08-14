@@ -42,7 +42,6 @@ JSONL_EVENT_TO_STATE = {
 }
 
 COMPLETED_HOLD_MS = 15000
-SLEEP_AFTER_IDLE_MS = 300000  # 5 min idle -> SLEEP (Phase 5)
 
 StateCallback = Callable[[dict], Coroutine[None, None, None]]
 
@@ -230,9 +229,6 @@ class CodexMonitor:
         # COMPLETED -> IDLE after hold
         if self._state == "COMPLETED" and self._completed_at and now - self._completed_at >= COMPLETED_HOLD_MS / 1000:
             await self._apply_state("IDLE", source="timer")
-        # IDLE -> SLEEP after long idle (Phase 5 behavior)
-        if self._state == "IDLE" and now - self._last_activity >= SLEEP_AFTER_IDLE_MS / 1000:
-            await self._apply_state("SLEEP", source="timer")
 
     async def _apply_state(self, state: str, source: str):
         if state == self._state:

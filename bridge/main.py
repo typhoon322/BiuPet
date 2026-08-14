@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 import time
@@ -11,6 +12,7 @@ from pathlib import Path
 
 from config import load_config
 from codex_monitor import CodexMonitor
+from dsh_monitor import DshMonitor
 from ble_server import BleBridge
 from usage_tracker import UsageTracker
 
@@ -56,6 +58,30 @@ def fetch_deepseek_balance() -> str:
         return "--"
 
 
+class StateHub:
+    """Merge multiple agent monitors; most-recent-activity wins, idle->SLEEP here."""
+
+    def __init__(self, send_fn):
+        self._send = send_fn
+        self._state = "IDLE"
+        self._last_activity = time.monotonic()
+
+    async def report(self, state: dict):
+        self._last_activity = time.monotonic()
+        s = state.get("state", "IDLE")
+        if s != self._state:
+            self._state = s
+            await self._send(state)
+
+    async def idle_loop(self, stop_event):
+        while not stop_event.is_set():
+            await asyncio.sleep(1)
+            if self._state == "IDLE" and time.monotonic() - self._last_activity >= 300:
+                await self.report({
+                    "state": "SLEEP", "progress": 0, "task": "", "timestamp": int(time.time()),
+                })
+
+
 async def main():
     parser = argparse.ArgumentParser(description="CodexPet bridge")
     parser.add_argument("--debug", action="store_true", help="verbose logging")
@@ -67,14 +93,11 @@ async def main():
     )
 
     cfg = load_config()
+    dsh_dir = os.path.expanduser(cfg.get("dsh", {}).get("session_dir", "~/.dsh/sessions"))
     monitor = CodexMonitor(cfg)
     bridge = BleBridge(cfg)
     usage = UsageTracker(cfg["monitor"]["session_dir"])
     last_balance_at = 0.0
-
-    async def on_state(state):
-        log.info("monitor -> %s", state.get("state"))
-        await bridge.send_state(state)
 
     async def usage_loop():
         nonlocal last_balance_at
@@ -98,7 +121,10 @@ async def main():
             except asyncio.TimeoutError:
                 pass
 
-    monitor.set_callback(on_state)
+    hub = StateHub(bridge.send_state)
+    dsh = DshMonitor(dsh_dir)
+    monitor.set_callback(hub.report)
+    dsh.set_callback(hub.report)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_event_loop()
@@ -113,6 +139,8 @@ async def main():
         monitor.run(stop_event),
         bridge.run(stop_event),
         usage_loop(),
+        dsh.run(stop_event),
+        hub.idle_loop(stop_event),
         return_exceptions=True,
     )
 
