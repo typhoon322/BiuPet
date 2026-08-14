@@ -17,7 +17,7 @@ private:
     // full-screen canvas: cat walks across the whole 320px display
     static constexpr int16_t SIZE = 128;
     static constexpr int16_t CANVAS_W = 320;
-    static constexpr int16_t CANVAS_H = 128;
+    static constexpr int16_t CANVAS_H = 152;
 
     PetState state_ = PetState::IDLE;
     GFXcanvas16 canvas_{CANVAS_W, CANVAS_H};

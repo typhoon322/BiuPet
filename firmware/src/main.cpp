@@ -271,7 +271,7 @@ void loop() {
         drawStatusBar(pet.state());
     }
 
-    pet.draw(tft, 0, 30);
+    pet.draw(tft, 0, 20);
     frames++;
 
     if (now - lastFpsLog >= 5000) {
