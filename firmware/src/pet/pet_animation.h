@@ -2,7 +2,7 @@
 
 #include <Adafruit_ST7789.h>
 #include "pet_state.h"
-#include "ui/cat_sprite.h"
+#include "ui/cat_frames.h"
 
 class PetAnimation {
 public:
@@ -17,7 +17,7 @@ private:
     // full-screen canvas: cat walks across the whole 320px display
     static constexpr int16_t SIZE = 128;
     static constexpr int16_t CANVAS_W = 320;
-    static constexpr int16_t CANVAS_H = 152;
+    static constexpr int16_t CANVAS_H = 130;
 
     PetState state_ = PetState::IDLE;
     GFXcanvas16 canvas_{CANVAS_W, CANVAS_H};
@@ -44,6 +44,7 @@ private:
     bool showDots_ = false;
     bool showStar_ = false;
     bool showSweat_ = false;
+    bool caught_ = false;       // WORKING: butterfly is caught (held at the mouth)
 
     // side-profile walking cat (option A)
     float walkX_ = 160.0f;      // body center x in display space (paces 40..280)
@@ -59,7 +60,8 @@ private:
     float pounceAir_ = 0.0f;    // 0..1: airborne stretch of the leap
     float bodyStretch_ = 1.0f;  // chase: spine stretch for the leopard run
 
-    void blitSprite(int16_t cx, int16_t groundY);
+    void blitFrame(int frame, int16_t cx, int16_t groundY);
+    void animInfo(int& base, int& count, int& fps) const;
     static uint16_t desaturate(uint16_t c);
     static uint16_t darken(uint16_t c);
     void drawButterfly2(int16_t bx, int16_t by, float flap);

@@ -116,45 +116,41 @@ void PetAnimation::update(uint32_t nowMs) {
             butterflyX_ = 70.0f + 180.0f * (0.5f + 0.5f * sinf(butterflyPhase_ * 0.8f));
             butterflyY_ = 48.0f + 22.0f * sinf(butterflyPhase_ * 1.6f);
             const float dx = butterflyX_ - walkX_;
-            facingLeft_ = dx < 0.0f;
-            walkPhase_ += 9.0f * dt;  // gallop stride ~1.4 Hz
-
-            if (pounceCd_ > 0.0f) {
-                pounceCd_ -= dt;
-            }
-
             if (pounceT_ >= 0.0f) {
-                // rear up on the hind legs, then leap
+                // leap: parabolic arc toward the butterfly
                 pounceT_ += dt;
-                constexpr float REAR_DUR = 0.28f;
-                constexpr float LEAP_DUR = 0.42f;
-                if (pounceT_ < REAR_DUR) {
-                    rearUp_ = pounceT_ / REAR_DUR;
-                    bob_ = rearUp_ * 3.0f;
-                } else if (pounceT_ < REAR_DUR + LEAP_DUR) {
-                    const float p = (pounceT_ - REAR_DUR) / LEAP_DUR;
-                    rearUp_ = 0.0f;   // fold down into the leap
-                    pounceAir_ = p;
-                    bob_ = sinf(p * PI) * 17.0f;
-                    walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 55.0f * dt;  // lunge
+                constexpr float LEAP_DUR = 0.45f;
+                const float p = pounceT_ / LEAP_DUR;
+                if (p < 1.0f) {
+                    caught_ = false;
+                    bob_ = sinf(p * 3.14159f) * 18.0f;                 // arc up then down
+                    walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 100.0f * dt; // lunge
                 } else {
                     pounceT_ = -1.0f;
-                    rearUp_ = 0.0f;
-                    pounceAir_ = 0.0f;
-                    bob_ = 0.3f;
-                    pounceCd_ = 0.5f;
+                    pounceCd_ = 0.45f;   // brief "caught it" moment
                 }
-            } else if (fabsf(dx) <= 34.0f && pounceCd_ <= 0.0f) {
-                pounceT_ = 0.0f;  // in range: stand up and pounce
-                bodyStretch_ = 1.0f;
+            } else if (pounceCd_ > 0.0f) {
+                // just caught: hop with the butterfly at the mouth
+                pounceCd_ -= dt;
+                caught_ = true;
+                bob_ = fabsf(sinf(phase * 6.0f)) * 6.0f;
+                if (pounceCd_ <= 0.0f) {
+                    butterflyPhase_ += 1.2f;   // butterfly escapes to a new spot
+                }
             } else {
-                // leopard gallop: one back flex per stride
-                bodyStretch_ = 0.5f + 0.5f * sinf(walkPhase_);
-                walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 52.0f * dt;
-                bob_ = 0.3f;
+                // chase the butterfly
+                caught_ = false;
+                facingLeft_ = dx < 0.0f;          // turn to face it
+                walkPhase_ += 9.0f * dt;          // gallop stride ~1.4 Hz
+                walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 70.0f * dt;
+                bob_ = fabsf(sinf(walkPhase_)) * 4.0f;
+                if (fabsf(dx) < 16.0f) {
+                    pounceT_ = 0.0f;   // in range: leap!
+                }
             }
             if (walkX_ < 40.0f) walkX_ = 40.0f;
             if (walkX_ > 280.0f) walkX_ = 280.0f;
+            if (walkX_ <= 40.0f || walkX_ >= 280.0f) bob_ = 0.0f;   // no wall bounce
             eyesOpen_ = 0.7f + 0.3f * sinf(phase * 3.0f);
             mouthStyle_ = 1;
             headTiltY_ = 1.0f;
@@ -203,20 +199,30 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     const float t = static_cast<float>(millis() - stateStartedMs_) / 1000.0f;
     const int16_t cx = static_cast<int16_t>(walkX_);
     const int16_t jump = static_cast<int16_t>(bob_);
-    const int16_t ground = 110 - jump;
+    const int16_t ground = 116 - jump;
 
     const bool offline = state_ == PetState::OFFLINE;
-    canvas_.fillEllipse(cx, 112, 40, 5, offline ? rgb565(50, 50, 55) : rgb565(58, 58, 66));
+    canvas_.fillEllipse(cx, 118, 40, 5, offline ? rgb565(50, 50, 55) : rgb565(58, 58, 66));
 
-    blitSprite(cx, ground);
+    int base, count, fps;
+    animInfo(base, count, fps);
+    int frame = base;
+    if (count > 1 && fps > 0) {
+        frame = base + ((millis() - stateStartedMs_) / (1000 / fps)) % count;
+    }
+    blitFrame(frame, cx, ground);
 
     if (state_ == PetState::WORKING) {
-        drawButterfly2(static_cast<int16_t>(butterflyX_), static_cast<int16_t>(butterflyY_), sinf(t * 18.0f));
+        if (caught_) {
+            drawButterfly2(cx + 22 * (facingLeft_ ? -1 : 1), ground - 58, 1.0f);  // held at the mouth
+        } else {
+            drawButterfly2(static_cast<int16_t>(butterflyX_), static_cast<int16_t>(butterflyY_), sinf(t * 18.0f));
+        }
     } else if (state_ == PetState::COMPLETED) {
         drawButterfly2(cx + 24 * (facingLeft_ ? -1 : 1), ground - 40, 1.0f);
     }
 
-    drawSymbols2(cx, ground - kCatSpriteH - 8, t);
+    drawSymbols2(cx, ground - kFrameH * 2 - 8, t);
 
     const uint16_t* buf = canvas_.getBuffer();
     tft.startWrite();
@@ -232,46 +238,72 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
 }
 
 uint16_t PetAnimation::desaturate(uint16_t c) {
-    uint32_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
-    uint32_t lum = (r * 2 + g + b) / 4;
-    return (uint16_t)((lum << 11) | (lum << 5) | lum);
+    const uint8_t r = (c >> 11) & 0x1F;
+    const uint8_t g = (c >> 5) & 0x3F;
+    const uint8_t b = c & 0x1F;
+    const uint8_t r8 = (r << 3) | (r >> 2);   // 5-bit -> 8-bit
+    const uint8_t g8 = (g << 2) | (g >> 4);   // 6-bit -> 8-bit
+    const uint8_t b8 = (b << 3) | (b >> 2);   // 5-bit -> 8-bit
+    const uint8_t lum = (uint8_t)((r8 * 30 + g8 * 59 + b8 * 11) / 100);  // Rec.601 luma
+    const uint8_t r5 = lum >> 3;
+    const uint8_t g6 = lum >> 2;
+    const uint8_t b5 = lum >> 3;
+    return (uint16_t)((r5 << 11) | (g6 << 5) | b5);
 }
 
 uint16_t PetAnimation::darken(uint16_t c) {
     return (uint16_t)((c >> 1) & 0x7BEF);
 }
 
-void PetAnimation::blitSprite(int16_t cx, int16_t groundY) {
+void PetAnimation::animInfo(int& base, int& count, int& fps) const {
+    switch (state_) {
+        case PetState::IDLE:      base = 0;  count = 4;  fps = 4;  break;  // slow walk
+        case PetState::WORKING:
+            if (caught_) { base = 4; count = 8; fps = 8; }   // beat (big action)
+            else         { base = 0; count = 4; fps = 6; }   // run (walk fast)
+            break;
+        case PetState::COMPLETED: base = 12; count = 2; fps = 3; break;  // jump celebrate
+        case PetState::ERROR:     base = 14; count = 2; fps = 1; break;  // die
+        default:                  base = 0;  count = 1; fps = 0; break;  // static
+    }
+}
+
+void PetAnimation::blitFrame(int frame, int16_t cx, int16_t groundY) {
     const bool offline = state_ == PetState::OFFLINE;
     const bool sleeping = state_ == PetState::SLEEP;
-    const float sq = sleeping ? 0.72f : 1.0f;
-    const int H = static_cast<int>(kCatSpriteH * sq);
-    const int topY = groundY - H;
+    const int SCALE = 2;
+    const int W = kFrameW, H = kFrameH;
+    const int maskPer = (W * H + 7) / 8;
+    const uint32_t rgbOff = kFrameOffset[frame];
+    const uint32_t maskOff = (uint32_t)frame * maskPer;
+    const int16_t topX = cx - (W * SCALE) / 2;
+    const int16_t topY = groundY - H * SCALE;
     for (int dy = 0; dy < H; ++dy) {
-        const int sy = static_cast<int>(dy * kCatSpriteH / (float)H);
-        for (int dx = 0; dx < kCatSpriteW; ++dx) {
-            const int sx = facingLeft_ ? (kCatSpriteW - 1 - dx) : dx;
-            const int idx = sy * kCatSpriteW + sx;
-            if (!(kCatMask[idx >> 3] & (0x80 >> (idx & 7)))) continue;
-            uint16_t c = kCatSprite[idx];
+        for (int dx = 0; dx < W; ++dx) {
+            const int sx = facingLeft_ ? (W - 1 - dx) : dx;   // asset faces right
+            const int p = dy * W + sx;
+            if (!(kFrameMask[maskOff + p / 8] & (0x80 >> (p & 7)))) continue;
+            uint16_t c = kFrameRGB[rgbOff + p];
             if (offline) c = desaturate(c);
             else if (sleeping) c = darken(c);
-            canvas_.drawPixel(cx - kCatSpriteW / 2 + dx, topY + dy, c);
+            for (int sy = 0; sy < SCALE; ++sy)
+                for (int sxx = 0; sxx < SCALE; ++sxx)
+                    canvas_.drawPixel(topX + dx * SCALE + sxx, topY + dy * SCALE + sy, c);
         }
     }
 }
 
 void PetAnimation::drawButterfly2(int16_t bx, int16_t by, float flap) {
-    const int16_t wing = 6 + static_cast<int16_t>(flap * 2.0f);
+    const int16_t wing = 10 + static_cast<int16_t>(flap * 3.0f);
     const uint16_t wingColor = rgb565(255, 190, 90);
     const uint16_t wingDark = rgb565(140, 100, 220);
-    canvas_.fillTriangle(bx, by, bx - wing, by - 6, bx - 3, by + 2, wingColor);
-    canvas_.fillTriangle(bx, by, bx + wing, by - 6, bx + 3, by + 2, wingColor);
-    canvas_.fillTriangle(bx, by, bx - wing + 3, by + 6, bx - 2, by + 2, wingDark);
-    canvas_.fillTriangle(bx, by, bx + wing - 3, by + 6, bx + 2, by + 2, wingDark);
-    canvas_.fillRect(bx - 1, by - 4, 2, 8, COLOR_LINE);
-    canvas_.drawLine(bx, by - 4, bx - 3, by - 8, COLOR_LINE);
-    canvas_.drawLine(bx, by - 4, bx + 3, by - 8, COLOR_LINE);
+    canvas_.fillTriangle(bx, by, bx - wing, by - 10, bx - 4, by + 2, wingColor);
+    canvas_.fillTriangle(bx, by, bx + wing, by - 10, bx + 4, by + 2, wingColor);
+    canvas_.fillTriangle(bx, by, bx - wing + 4, by + 10, bx - 3, by + 3, wingDark);
+    canvas_.fillTriangle(bx, by, bx + wing - 4, by + 10, bx + 3, by + 3, wingDark);
+    canvas_.fillRect(bx - 1, by - 6, 3, 12, COLOR_LINE);
+    canvas_.drawLine(bx, by - 6, bx - 4, by - 12, COLOR_LINE);
+    canvas_.drawLine(bx, by - 6, bx + 4, by - 12, COLOR_LINE);
 }
 
 void PetAnimation::drawSymbols2(int16_t cx, int16_t cy, float t) {
