@@ -232,11 +232,16 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
 
     // pose-dependent geometry: upright when rearing, stretched when leaping,
     // long and low when chasing (leopard run)
-    int16_t bodyW = (state_ == PetState::SLEEP) ? 62 : 44;
-    int16_t bodyH = (state_ == PetState::SLEEP) ? 20 : 26;
+    int16_t bodyW = 44;
+    int16_t bodyH = 26;
     int16_t hx = cx + 24 * m;
     int16_t hy = ground - 46 + static_cast<int16_t>(16.0f * squash_);
-    if (rearUp) {
+    if (state_ == PetState::SLEEP) {
+        // curled up, lying flat, head resting on the ground
+        bodyW = 62;
+        bodyH = 18;
+        hy = ground - 12;
+    } else if (rearUp) {
         bodyW = 34;
         bodyH = 42;
         hx = cx + 18 * m;
@@ -252,7 +257,7 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
         hx = cx + (26 + static_cast<int16_t>(5.0f * bodyStretch_)) * m;
         hy = ground - 40;
     }
-    const int16_t bodyCy = ground - 10 - bodyH / 2;  // bottom floats 10px above ground
+    const int16_t bodyCy = ground - ((state_ == PetState::SLEEP) ? 4 : 10) - bodyH / 2;
 
     // far legs (darker, behind the body)
     drawSideLeg(cx - 16 * m, ground, m, 2, darkColor, 0.0f, false, t);   // far back
@@ -331,7 +336,13 @@ void PetAnimation::drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, 
     const bool chasing =
         state_ == PetState::WORKING && rearUp_ <= 0.05f && pounceAir_ <= 0.05f;
     int16_t baseX, baseY, tipX, tipY;
-    if (chasing) {
+    if (state_ == PetState::SLEEP) {
+        // tail curled alongside the sleeping body
+        baseX = cx - 20 * m;
+        baseY = ground - 10;
+        tipX = baseX - 10 * m + static_cast<int16_t>(sinf(t * 1.5f) * 2.0f);
+        tipY = baseY - 8;
+    } else if (chasing) {
         // low tail streaming behind the gallop
         baseX = cx - 13 * m;
         baseY = ground - 20;
@@ -357,6 +368,9 @@ void PetAnimation::drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, 
 void PetAnimation::drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
                                uint16_t color, float phase, bool frontLeg, float t) {
     (void)t;
+    if (state_ == PetState::SLEEP) {
+        return;  // lying down: legs tucked under the body
+    }
     if (state_ == PetState::WORKING) {
         if (rearUp_ > 0.05f) {
             if (frontLeg) {

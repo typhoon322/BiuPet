@@ -191,7 +191,7 @@ void setup() {
 
     ledcSetup(0, 5000, 8);
     ledcAttachPin(PIN_LCD_BL, 0);
-    ledcWrite(0, 255);
+    ledcWrite(0, 140);  // full brightness washes black out on this panel
 
     pinMode(PIN_LCD_RST, OUTPUT);
     digitalWrite(PIN_LCD_RST, HIGH);
