@@ -37,3 +37,34 @@ inline size_t truncate_by_width(const char* s, int maxUnits, int asciiUnits, int
 }
 
 } // namespace utf8
+
+#include "gb2312_table.h"
+
+// UTF-8 -> GB2312 字节串。ASCII 透传（1 字节）；CJK 映射为 2 字节；
+// 未映射码点写 '?'（1 字节）。按宽度截断（asciiUnits/wideUnits），
+// 返回写入 dst 的字节数（不含结尾 '\0'）。
+inline size_t utf8_to_gb2312(const char* src, char* dst, size_t dstCap,
+                             int maxUnits, int asciiUnits, int wideUnits) {
+    size_t i = 0, o = 0;
+    int used = 0;
+    while (src[i] != '\0' && o + 4 < dstCap) {
+        utf8::Codepoint c = utf8::decode(src + i);
+        int w = (c.cp < 0x80) ? asciiUnits : wideUnits;
+        if (used + w > maxUnits) break;
+        if (c.cp < 0x80) {
+            dst[o++] = static_cast<char>(c.cp);
+        } else {
+            uint16_t gb = unicode_to_gb2312(static_cast<uint16_t>(c.cp));
+            if (gb != 0) {
+                dst[o++] = static_cast<char>((gb >> 8) & 0xFF);
+                dst[o++] = static_cast<char>(gb & 0xFF);
+            } else {
+                dst[o++] = '?';
+            }
+        }
+        used += w;
+        i += c.len;
+    }
+    dst[o] = '\0';
+    return o;
+}
