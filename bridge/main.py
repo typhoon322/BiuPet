@@ -61,22 +61,43 @@ def fetch_deepseek_balance() -> str:
 class StateHub:
     """Merge multiple agent monitors; most-recent-activity wins, idle->SLEEP here."""
 
+    COMPLETED_HOLD_S = 3.0  # keep the celebration visible for at least this long
+
     def __init__(self, send_fn):
         self._send = send_fn
         self._state = "IDLE"
         self._last_activity = time.monotonic()
+        self._completed_at = 0.0
+        self._pending_state = None
 
     async def report(self, state: dict):
         self._last_activity = time.monotonic()
         s = state.get("state", "IDLE")
+        if s == "COMPLETED":
+            self._completed_at = time.monotonic()
+            if self._state != "COMPLETED":
+                self._state = "COMPLETED"
+                await self._send(state)
+            return
+        # during the COMPLETED celebration, buffer the incoming state so the
+        # animation has time to show before WORKING/IDLE takes over
+        if self._state == "COMPLETED" and time.monotonic() - self._completed_at < self.COMPLETED_HOLD_S:
+            self._pending_state = state
+            return
         if s != self._state:
             self._state = s
             await self._send(state)
 
     async def idle_loop(self, stop_event):
         while not stop_event.is_set():
-            await asyncio.sleep(1)
-            if self._state == "IDLE" and time.monotonic() - self._last_activity >= 300:
+            await asyncio.sleep(0.2)
+            if self._state == "COMPLETED" and self._pending_state is not None \
+                    and time.monotonic() - self._completed_at >= self.COMPLETED_HOLD_S:
+                p = self._pending_state
+                self._pending_state = None
+                self._state = p.get("state", "IDLE")
+                await self._send(p)
+            elif self._state == "IDLE" and time.monotonic() - self._last_activity >= 300:
                 await self.report({
                     "state": "SLEEP", "progress": 0, "task": "", "timestamp": int(time.time()),
                 })
