@@ -133,7 +133,7 @@ void PetAnimation::update(uint32_t nowMs) {
                     bob_ = rearUp_ * 3.0f;
                 } else if (pounceT_ < REAR_DUR + LEAP_DUR) {
                     const float p = (pounceT_ - REAR_DUR) / LEAP_DUR;
-                    rearUp_ = (1.0f - p) * 0.8f;
+                    rearUp_ = 0.0f;   // fold down into the leap
                     pounceAir_ = p;
                     bob_ = sinf(p * PI) * 17.0f;
                     walkX_ += (dx > 0.0f ? 1.0f : -1.0f) * 55.0f * dt;  // lunge
