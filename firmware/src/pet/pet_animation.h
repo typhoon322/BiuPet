@@ -2,6 +2,7 @@
 
 #include <Adafruit_ST7789.h>
 #include "pet_state.h"
+#include "ui/cat_sprite.h"
 
 class PetAnimation {
 public:
@@ -58,12 +59,9 @@ private:
     float pounceAir_ = 0.0f;    // 0..1: airborne stretch of the leap
     float bodyStretch_ = 1.0f;  // chase: spine stretch for the leopard run
 
-    void drawSideHead(int16_t hx, int16_t hy, int16_t m, float t,
-                      uint16_t headColor, uint16_t darkColor,
-                      uint16_t snoutColor, uint16_t lineColor);
-    void drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
-                     uint16_t color, float phase, bool frontLeg, float t);
-    void drawSideTail(int16_t cx, int16_t ground, int16_t m, float t, uint16_t color);
-    void drawButterfly(int16_t bx, int16_t by, float flap);
-    void drawSymbols(int16_t cx, int16_t cy, float t);
+    void blitSprite(int16_t cx, int16_t groundY);
+    static uint16_t desaturate(uint16_t c);
+    static uint16_t darken(uint16_t c);
+    void drawButterfly2(int16_t bx, int16_t by, float flap);
+    void drawSymbols2(int16_t cx, int16_t cy, float t);
 };
