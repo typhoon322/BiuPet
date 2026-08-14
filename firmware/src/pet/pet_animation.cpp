@@ -376,13 +376,18 @@ void PetAnimation::drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
             if (frontLeg) {
                 // front paws raised high, ready to pounce
                 const int16_t pawTop = ground - 28 - static_cast<int16_t>(8.0f * rearUp_);
-                fillRoundRectAuto(canvas_, lx - 4, pawTop, 8, ground - pawTop + 2, 4, color);
+                // shaft from the chest up to the paw
+                fillRoundRectAuto(canvas_, lx - 3, pawTop + 5, 6, ground - 12 - (pawTop + 5), 3, color);
+                // raised paw at the top
+                fillRoundRectAuto(canvas_, lx - 5, pawTop, 10, 6, 3, color);
                 const uint16_t tick = COLOR_BODY_DK;
-                canvas_.drawLine(lx - 2, pawTop + 3, lx - 1, pawTop + 5, tick);
-                canvas_.drawLine(lx + 1, pawTop + 3, lx + 2, pawTop + 5, tick);
+                canvas_.drawLine(lx - 3, pawTop + 4, lx - 2, pawTop + 3, tick);
+                canvas_.drawLine(lx, pawTop + 4, lx, pawTop + 3, tick);
+                canvas_.drawLine(lx + 2, pawTop + 4, lx + 3, pawTop + 3, tick);
             } else {
                 // hind legs stay planted
-                fillRoundRectAuto(canvas_, lx - 4, ground - 12, 8, 13, 4, color);
+                fillRoundRectAuto(canvas_, lx - 3, ground - 12, 6, 7, 3, color);
+                fillRoundRectAuto(canvas_, lx - 5, ground - 5, 10, 6, 3, color);
             }
             return;
         }
@@ -410,12 +415,20 @@ void PetAnimation::drawSideLeg(int16_t lx, int16_t ground, int16_t m, int layer,
     } else if (state_ == PetState::COMPLETED) {
         lift = (layer == 1) ? 1.0f : 0.0f;
     }
-    const int16_t liftPx = static_cast<int16_t>(lift * 3.0f);
-    fillRoundRectAuto(canvas_, lx - 4, ground - 12 + liftPx, 8, 13 - liftPx, 4, color);
+    // leg shaft + a distinct paw: the paw lifts off the ground when stepping
+    const int16_t liftPx = static_cast<int16_t>(lift * 5.0f);
+    int16_t shaftH = 7 - liftPx;
+    if (shaftH < 2) {
+        shaftH = 2;
+    }
+    fillRoundRectAuto(canvas_, lx - 3, ground - 12, 6, shaftH, 3, color);
+    const int16_t pawTop = ground - 5 - liftPx;
+    fillRoundRectAuto(canvas_, lx - 5, pawTop, 10, 6, 3, color);
     if (layer == 1) {
         const uint16_t tick = (state_ == PetState::OFFLINE) ? COLOR_GRAY_DK : COLOR_BODY_DK;
-        canvas_.drawLine(lx - 2, ground - 3, lx - 1, ground - 5, tick);
-        canvas_.drawLine(lx + 1, ground - 3, lx + 2, ground - 5, tick);
+        canvas_.drawLine(lx - 3, pawTop + 4, lx - 2, pawTop + 3, tick);
+        canvas_.drawLine(lx, pawTop + 4, lx, pawTop + 3, tick);
+        canvas_.drawLine(lx + 2, pawTop + 4, lx + 3, pawTop + 3, tick);
     }
 }
 
