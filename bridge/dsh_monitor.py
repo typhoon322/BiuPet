@@ -115,7 +115,7 @@ class DshMonitor:
         log.debug("dsh %s -> %s", event, state)
         if state == "COMPLETED":
             self._completed_at = time.monotonic()
-        elif state != self._state:
+        if state != self._state:
             asyncio.get_event_loop().create_task(self._apply(state, task))
 
     @staticmethod
