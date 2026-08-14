@@ -10,6 +10,7 @@
 #include "communication/ble_manager.h"
 #include "communication/wifi_server.h"
 #include "storage/pet_stats.h"
+#include "ui/chinese_text.h"
 
 Adafruit_ST7789 tft(PIN_LCD_CS, PIN_LCD_DC, PIN_LCD_RST);
 PetAnimation pet;
@@ -103,24 +104,6 @@ static void drawWhale(Adafruit_ST7789& tft, int16_t x, int16_t y) {
     tft.endWrite();
 }
 
-// GLCD font only covers ASCII: map everything else to '?' and clamp width so
-// the task line never overlaps the DeepSeek balance in the bottom-right.
-static void sanitizeTaskLine(const char* src, char* dst, size_t dstCap, int maxPx) {
-    constexpr int FONT_W = 6;
-    int px = 0;
-    size_t o = 0;
-    for (size_t i = 0; src[i] != '\0' && o + 1 < dstCap; ++i) {
-        const unsigned char c = static_cast<unsigned char>(src[i]);
-        const char out = (c >= 0x20 && c <= 0x7E) ? static_cast<char>(c) : '?';
-        if (px + FONT_W > maxPx) {
-            break;
-        }
-        dst[o++] = out;
-        px += FONT_W;
-    }
-    dst[o] = '\0';
-}
-
 void drawStatusBar(PetState state) {
     tft.fillRect(0, 0, 320, 26, ST77XX_BLACK);
     tft.setCursor(16, 7);
@@ -158,12 +141,7 @@ void drawStatusBar(PetState state) {
 
     // task line just above the bottom bar
     tft.fillRect(0, 198, 320, 14, ST77XX_BLACK);
-    char taskBuf[48];
-    sanitizeTaskLine(bottomText, taskBuf, sizeof(taskBuf), 296);
-    tft.setCursor(16, 200);
-    tft.setTextColor(ST77XX_CYAN);
-    tft.setTextSize(1);
-    tft.print(taskBuf);
+    drawChineseText(tft, 16, 198, bottomText, ST77XX_CYAN, 296);
 
     // bottom bar: usage bottom-left, whale + balance bottom-right
     tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
