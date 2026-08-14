@@ -96,7 +96,8 @@ async def main():
     dsh_dir = os.path.expanduser(cfg.get("dsh", {}).get("session_dir", "~/.dsh/sessions"))
     monitor = CodexMonitor(cfg)
     bridge = BleBridge(cfg)
-    usage = UsageTracker(cfg["monitor"]["session_dir"])
+    dsh_storage = os.path.expanduser(cfg.get("dsh", {}).get("storage_file", "~/.dsh/storages/session_projcache.json"))
+    usage = UsageTracker(cfg["monitor"]["session_dir"], dsh_storage)
     last_balance_at = 0.0
 
     async def usage_loop():

@@ -26,3 +26,4 @@ debug:
 
 dsh:
   session_dir: ~/.dsh/sessions
+  storage_file: ~/.dsh/storages/session_projcache.json
