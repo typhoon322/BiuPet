@@ -114,14 +114,14 @@ void drawStatusBar(PetState state) {
 
     const bool bleOk = ble.isOnline();
     const bool wifiOk = wifi.isConnected();
-    // BLE 圆点
-    tft.fillCircle(254, 10, 4, bleOk ? ST77XX_GREEN : ST77XX_RED);
-    tft.setCursor(262, 4);
+    // BLE 圆点 + 文字（圆点中心 y=8 与文字垂直对齐，组内 6px、组间 10px 间距）
+    tft.fillCircle(240, 8, 4, bleOk ? ST77XX_GREEN : ST77XX_RED);
+    tft.setCursor(250, 4);
     tft.setTextColor(bleOk ? ST77XX_GREEN : ST77XX_RED);
     tft.print("BLE");
     // WiFi 圆点
-    tft.fillCircle(288, 10, 4, wifiOk ? ST77XX_GREEN : ST77XX_RED);
-    tft.setCursor(296, 4);
+    tft.fillCircle(282, 8, 4, wifiOk ? ST77XX_GREEN : ST77XX_RED);
+    tft.setCursor(292, 4);
     tft.setTextColor(wifiOk ? ST77XX_GREEN : ST77XX_RED);
     tft.print("WiFi");
 

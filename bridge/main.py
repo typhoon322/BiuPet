@@ -61,7 +61,7 @@ def fetch_deepseek_balance() -> str:
 class StateHub:
     """Merge multiple agent monitors; most-recent-activity wins, idle->SLEEP here."""
 
-    COMPLETED_HOLD_S = 3.0  # keep the celebration visible for at least this long
+    COMPLETED_HOLD_S = 10.0  # keep the celebration visible for at least this long
 
     def __init__(self, send_fn):
         self._send = send_fn
