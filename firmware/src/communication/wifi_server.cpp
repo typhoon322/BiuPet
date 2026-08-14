@@ -159,52 +159,35 @@ q('wf').onsubmit=function(e){e.preventDefault();
 }
 
 void WifiServer::handleState() {
-    String body = server_.arg("plain");
+    const String body = server_.arg("plain");
     if (body.isEmpty()) {
         server_.send(400, "text/plain", "empty body");
         return;
     }
-    // minimal JSON parse: "state":"working" or numeric
+    JsonDocument doc;
+    if (deserializeJson(doc, body)) {
+        server_.send(400, "text/plain", "bad json");
+        return;
+    }
+    // state accepts either a name ("WORKING", case-insensitive) or a number 0..6
     int state = -1;
-    int sIdx = body.indexOf("\"state\"");
-    if (sIdx >= 0) {
-        String sub = body.substring(sIdx);
-        int colon = sub.indexOf(':');
-        String val = sub.substring(colon + 1);
-        val.trim();
-        if (val.startsWith("\"")) {
-            val = val.substring(1);
-            int q = val.indexOf('"');
-            if (q >= 0) val = val.substring(0, q);
-            for (uint8_t i = 0; i <= static_cast<uint8_t>(PetState::SLEEP); ++i) {
-                if (val.equalsIgnoreCase(petStateName(static_cast<PetState>(i)))) {
-                    state = i;
-                    break;
-                }
+    if (doc["state"].is<const char*>()) {
+        const String name = doc["state"].as<const char*>();
+        for (uint8_t i = 0; i <= static_cast<uint8_t>(PetState::SLEEP); ++i) {
+            if (name.equalsIgnoreCase(petStateName(static_cast<PetState>(i)))) {
+                state = static_cast<int>(i);
+                break;
             }
-        } else {
-            state = val.toInt();
         }
+    } else if (doc["state"].is<int>()) {
+        state = doc["state"].as<int>();
     }
     if (state < 0 || state > static_cast<int>(PetState::SLEEP)) {
         server_.send(400, "text/plain", "bad state");
         return;
     }
     pendingState_ = static_cast<uint8_t>(state);
-    pendingTask_ = "";
-    int tIdx = body.indexOf("\"task\"");
-    if (tIdx >= 0) {
-        String sub = body.substring(tIdx);
-        int colon = sub.indexOf(':');
-        String val = sub.substring(colon + 1);
-        val.trim();
-        if (val.startsWith("\"")) {
-            val = val.substring(1);
-            int q = val.indexOf('"');
-            if (q >= 0) val = val.substring(0, q);
-            pendingTask_ = val;
-        }
-    }
+    pendingTask_ = doc["task"].is<const char*>() ? doc["task"].as<const char*>() : "";
     statePending_ = true;
     server_.send(200, "text/plain", "ok");
 }

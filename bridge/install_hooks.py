@@ -28,6 +28,41 @@ def load_json(path: Path) -> dict:
         return {}
 
 
+def _is_hooks_key(line: str) -> bool:
+    """True if this line is a `hooks = ...` key (not a comment)."""
+    s = line.lstrip()
+    if not s or s.startswith("#"):
+        return False
+    return s.split("=", 1)[0].strip() == "hooks"
+
+
+def ensure_features_hooks(text: str) -> str:
+    """Insert `hooks = true` inside the existing [features] table (or append
+    a new one), without ever emitting a duplicate [features] header."""
+    lines = text.splitlines()
+
+    # Locate the exact [features] table header (not [features.*]).
+    header = next((i for i, ln in enumerate(lines) if ln.strip() == "[features]"), None)
+
+    if header is None:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines += ["[features]", "hooks = true", ""]
+        return "\n".join(lines) + "\n"
+
+    # End of the section = next top-level table header, or EOF.
+    end = len(lines)
+    for i in range(header + 1, len(lines)):
+        s = lines[i].lstrip()
+        if s.startswith("[") and s.endswith("]"):
+            end = i
+            break
+
+    section = [ln for ln in lines[header:end] if not _is_hooks_key(ln)]
+    section.insert(1, "hooks = true")  # right after the [features] header
+    return "\n".join(lines[:header] + section + lines[end:]) + "\n"
+
+
 def main() -> int:
     codex_dir = Path.home() / ".codex"
     hooks_path = codex_dir / "hooks.json"
@@ -56,22 +91,7 @@ def main() -> int:
 
     # ensure [features] hooks = true
     text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    if "[features]" not in text:
-        text += "\n[features]\nhooks = true\n"
-    else:
-        # replace any hooks=false / hooks = false line inside [features]
-        lines = text.splitlines()
-        out = []
-        in_features = False
-        for line in lines:
-            if line.strip() == "[features]":
-                in_features = True
-            elif line.strip().startswith("["):
-                in_features = False
-            if in_features and "hooks" in line and "=" in line:
-                continue
-            out.append(line)
-        text = "\n".join(out) + "\n[features]\nhooks = true\n"
+    text = ensure_features_hooks(text)
     config_path.write_text(text, encoding="utf-8")
     print(f"[install] ensured [features] hooks=true in {config_path}")
     print("[install] done. Restart Codex or run /hooks to approve the new commands.")

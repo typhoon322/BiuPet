@@ -31,6 +31,7 @@ static void applyState(PetState newState, const char* source) {
     } else if (newState == PetState::ERROR) {
         stats.onError();
     }
+    stats.flush(); // persist accumulated workingSeconds on any transition
     lastShownState = static_cast<PetState>(0xFF); // refresh status/stat lines
     Serial.printf("[PET] %s -> %s\n", source, petStateName(newState));
 }

@@ -84,10 +84,13 @@ async def main():
                 if tokens > 0:
                     # usage must not touch the current pet state
                     await bridge.send_usage(tokens)
-                # DeepSeek balance, refreshed every 30s
+                # DeepSeek balance, refreshed every 30s. The HTTP fetch is
+                # blocking, so run it in a worker thread to avoid stalling the
+                # event loop (which would freeze BLE heartbeats and hooks).
                 if time.monotonic() - last_balance_at >= 30:
                     last_balance_at = time.monotonic()
-                    await bridge.send_balance(fetch_deepseek_balance())
+                    balance = await asyncio.to_thread(fetch_deepseek_balance)
+                    await bridge.send_balance(balance)
             except Exception as e:
                 log.warning("usage loop error: %s", e)
             try:

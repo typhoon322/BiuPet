@@ -21,6 +21,8 @@ void PetStatsStore::save() {
     prefs_.putUInt("tasks", stats_.tasksCompleted);
     prefs_.putUInt("workSec", stats_.workingSeconds);
     prefs_.end();
+    lastSaveMs_ = millis();
+    dirty_ = false;
 }
 
 void PetStatsStore::addExp(uint32_t amount) {
@@ -42,5 +44,16 @@ void PetStatsStore::onError() {
 void PetStatsStore::addWorkingSeconds(uint32_t sec) {
     if (sec == 0) return;
     stats_.workingSeconds += sec;
-    save();
+    dirty_ = true;
+    // Persist at most once per minute; flush() covers state transitions so a
+    // power loss at worst drops <60s of accumulated work time.
+    if (millis() - lastSaveMs_ >= SAVE_INTERVAL_MS) {
+        save();
+    }
+}
+
+void PetStatsStore::flush() {
+    if (dirty_) {
+        save();
+    }
 }
