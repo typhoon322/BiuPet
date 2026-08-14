@@ -40,3 +40,6 @@ config.local.yaml
 firmware/lib/
 .pio/
 .venv/
+
+# Brainstorming visual companion runtime
+.superpowers/
