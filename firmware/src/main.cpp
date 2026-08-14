@@ -105,62 +105,55 @@ static void drawWhale(Adafruit_ST7789& tft, int16_t x, int16_t y) {
 }
 
 void drawStatusBar(PetState state) {
-    tft.fillRect(0, 0, 320, 26, ST77XX_BLACK);
-    tft.setCursor(16, 7);
-    tft.setTextColor(ST77XX_WHITE);
-    tft.setTextSize(2);
-    tft.print("CODEX PET");
-
-    // state name (middle; "CODEX PET" at size 2 ends at x=136)
-    tft.setCursor(140, 9);
+    // 顶栏：状态名 + 两个彩色圆点
+    tft.fillRect(0, 0, 320, 20, ST77XX_BLACK);
+    tft.setCursor(6, 4);
     tft.setTextColor(ST77XX_CYAN);
     tft.setTextSize(1);
     tft.print(petStateName(state));
 
-    const bool online = ble.isOnline() || wifi.isConnected();
-    const char* onlineLabel = online ? "ONLINE" : "OFFLINE";
-    tft.setCursor(196, 9);
-    tft.setTextColor(online ? ST77XX_GREEN : ST77XX_RED);
-    tft.setTextSize(1);
-    tft.print(onlineLabel);
+    const bool bleOk = ble.isOnline();
+    const bool wifiOk = wifi.isConnected();
+    // BLE 圆点
+    tft.fillCircle(254, 10, 4, bleOk ? ST77XX_GREEN : ST77XX_RED);
+    tft.setCursor(262, 4);
+    tft.setTextColor(bleOk ? ST77XX_GREEN : ST77XX_RED);
+    tft.print("BLE");
+    // WiFi 圆点
+    tft.fillCircle(288, 10, 4, wifiOk ? ST77XX_GREEN : ST77XX_RED);
+    tft.setCursor(296, 4);
+    tft.setTextColor(wifiOk ? ST77XX_GREEN : ST77XX_RED);
+    tft.print("WiFi");
 
-    tft.setCursor(252, 9);
-    tft.setTextColor(wifi.isConnected() ? ST77XX_GREEN : ST77XX_RED);
-    tft.setTextSize(1);
-    tft.print(wifi.isConnected() ? "WiFi" : "No WiFi");
+    // 任务行（中文）
+    tft.fillRect(0, 198, 320, 16, ST77XX_BLACK);
+    if (bottomText[0] != '\0') {
+        drawChineseText(tft, 8, 198, bottomText, ST77XX_CYAN, 304);
+    }
 
+    // 底栏：Lv / 用量 / 余额 单行
+    tft.fillRect(0, 216, 320, 24, ST77XX_BLACK);
     const auto& st = stats.stats();
-    char lvLine[48];
-    snprintf(lvLine, sizeof(lvLine), "Lv.%u exp %u/%u tasks:%u",
-             st.level, stats.expInLevel(), PetStatsStore::EXP_PER_LEVEL, st.tasksCompleted);
-    tft.fillRect(0, 28, 320, 10, ST77XX_BLACK);
-    tft.setCursor(16, 29);
+    char lv[16];
+    snprintf(lv, sizeof(lv), "Lv.%u", st.level);
+    tft.setCursor(8, 220);
     tft.setTextColor(ST77XX_GREEN);
     tft.setTextSize(1);
-    tft.print(lvLine);
+    tft.print(lv);
 
-    // task line just above the bottom bar
-    tft.fillRect(0, 198, 320, 14, ST77XX_BLACK);
-    drawChineseText(tft, 16, 198, bottomText, ST77XX_CYAN, 296);
-
-    // bottom bar: usage bottom-left, whale + balance bottom-right
-    tft.fillRect(0, 214, 320, 26, ST77XX_BLACK);
-    tft.setCursor(16, 220);
+    tft.setCursor(52, 220);
     tft.setTextColor(ST77XX_MAGENTA);
-    tft.setTextSize(1);
     tft.print(usageText);
 
-    // balance: fixed 6-char width, right-aligned
     char bal6[7];
     strncpy(bal6, ble.balanceText(), 6);
     bal6[6] = '\0';
     char balFixed[7];
     snprintf(balFixed, sizeof(balFixed), "%6s", bal6);
-    tft.setCursor(276, 220);
+    tft.setCursor(268, 220);
     tft.setTextColor(ST77XX_WHITE);
-    tft.setTextSize(1);
     tft.print(balFixed);
-    drawWhale(tft, 246, 215);  // whale left of the balance, vertically centered
+    drawWhale(tft, 238, 218);
 }
 
 void setup() {
@@ -215,7 +208,7 @@ void loop() {
             applyState(static_cast<PetState>(st), "wifi");
         }
         if (strlen(wifi.pendingTask()) > 0) {
-            snprintf(bottomText, sizeof(bottomText), "task: %s", wifi.pendingTask());
+            snprintf(bottomText, sizeof(bottomText), "%s", wifi.pendingTask());
             lastShownState = static_cast<PetState>(0xFF);
         }
         wifi.clearPendingState();
@@ -238,7 +231,7 @@ void loop() {
 
     if (ble.taskChanged()) {
         ble.clearTaskChanged();
-        snprintf(bottomText, sizeof(bottomText), "task: %s", ble.taskText());
+        snprintf(bottomText, sizeof(bottomText), "%s", ble.taskText());
         lastShownState = static_cast<PetState>(0xFF); // force bar redraw
     }
 
@@ -278,7 +271,7 @@ void loop() {
         drawStatusBar(pet.state());
     }
 
-    pet.draw(tft, 0, 64);
+    pet.draw(tft, 0, 30);
     frames++;
 
     if (now - lastFpsLog >= 5000) {
