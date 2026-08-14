@@ -61,7 +61,7 @@ async def main() -> int:
         await client.write_gatt_char(STATE_CHAR_UUID, packet, response=args.response)  # noqa: E501
         log.info("state %s sent", args.state)
         if args.task:
-            await client.write_gatt_char(TASK_CHAR_UUID, args.task.encode("utf-8"), response=False)
+            await client.write_gatt_char(TASK_CHAR_UUID, args.task.encode("utf-8"), response=args.response)
             log.info("task sent: %s", args.task)
     return 0
 
