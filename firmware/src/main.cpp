@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <time.h>
+#include <esp_sleep.h>
+#include <driver/gpio.h>
 
 #include "display/display_config.h"
 #include "config/config.h"
@@ -451,6 +453,34 @@ void loop() {
             break;
         case PetButton::B1_LONG:
             cyclePetState();
+            break;
+        case PetButton::B1_VERY_LONG:
+            // Power off: light sleep (keeps USB alive, no reset; ~1mA draw).
+            // Wake = press Button 1 or 2 (GPIO wakeup, light sleep).
+            {
+                tft.fillScreen(ST77XX_BLACK);
+                drawChineseText(tft, 10, 56, "正在关机...", ST77XX_YELLOW, 200);
+                tft.setFont(&fonts::Font0);
+                tft.setTextSize(1);
+                tft.setTextColor(ST77XX_WHITE);
+                tft.setCursor(10, 78);
+                tft.print("release to power off");
+                tft.setCursor(10, 92);
+                tft.print("press a button to wake");
+                const uint32_t t0 = millis();
+                while (digitalRead(0) == LOW && millis() - t0 < 10000) delay(20);
+                ledcWrite(0, 0);   // backlight off
+                gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
+                gpio_wakeup_enable(GPIO_NUM_14, GPIO_INTR_LOW_LEVEL);
+                esp_sleep_enable_gpio_wakeup();
+                Serial.println("[PET] light sleep");
+                esp_light_sleep_start();   // returns when a button is pressed
+                Serial.println("[PET] woken");
+                ledcWrite(0, kBrightnessLevels[backlightLevel_ - 1]);
+                backlightOn_ = true;
+                lastShownState = static_cast<PetState>(0xFF);
+                buttons.reinit();   // ignore the wake button's press
+            }
             break;
         case PetButton::B2_SHORT:
             backlightOn_ = !backlightOn_;
