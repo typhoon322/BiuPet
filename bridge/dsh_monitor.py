@@ -286,17 +286,44 @@ class DshMonitor:
         """Per-session housekeeping, run every second:
         - COMPLETED -> 空闲 after a short hold, so a finished session reads as
           IDLE instead of staying 已完成 forever;
-        - WORKING with no new event for a while means the window was closed /
-          the run stalled: mark it finished so it stops showing as busy."""
+        - WORKING with no writes for a while means the window was closed /
+          the run stalled: mark it finished so it stops showing as busy.
+        Afterwards re-derive the *global* pet state (busy session wins) and
+        push it to the animation callback, otherwise the pet would keep
+        celebrating COMPLETED forever even though the list shows 空闲."""
         now = time.time()
         for a in self._agents.values():
             if a.get("state") == "COMPLETED" and now - a.get("completed_at", 0) >= COMPLETED_HOLD_S:
                 a["state"] = "IDLE"
             # activity = the file's physical mtime (events are batch-flushed,
             # so the last event time can be stale even while the session is
-            # actively writing); WORKING with no writes for a while means the
-            # window was closed / the run stalled: mark it finished
+            # actively writing)
             activity = a.get("mtime") or a.get("ts", now)
             if a.get("state") == "WORKING" and now - activity > WORKING_STALE_S:
                 a["state"] = "COMPLETED"
                 a["completed_at"] = now
+        await self._sync_global()
+
+    async def _sync_global(self):
+        """Derive the pet's global state from the top-level sessions and
+        notify the animation callback when it changes."""
+        states = [a["state"] for a in self._agents.values() if a.get("depth", 1) == 0]
+        if not states:
+            return
+        if "WORKING" in states:
+            target = "WORKING"
+        elif "WAITING" in states:
+            target = "WAITING"
+        elif "COMPLETED" in states:
+            target = "COMPLETED"
+        else:
+            target = "IDLE"
+        if self._state != target:
+            self._state = target
+            if self._cb:
+                await self._cb({
+                    "state": target,
+                    "progress": 0,
+                    "task": self.current_task(),
+                    "timestamp": int(time.time()),
+                })
