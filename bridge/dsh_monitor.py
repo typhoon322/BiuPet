@@ -39,7 +39,7 @@ EVENT_TO_STATE = {
     "turn/end": "COMPLETED",
 }
 
-COMPLETED_HOLD_S = 15.0        # 已完成 -> 空闲 after this long
+COMPLETED_HOLD_S = 10.0        # 已完成 -> 空闲 after this long (stop celebrating)
 WORKING_STALE_S = 90.0         # WORKING with no new event this long => finished
 
 StateCallback = Callable[[dict], Coroutine[None, None, None]]
