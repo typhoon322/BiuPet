@@ -56,16 +56,6 @@ static void applyState(PetState newState, const char* source) {
 static char bottomText[64] = "";
 char usageText[32] = "usage: -";
 
-// ¥ glyph: "Y" + horizontal bar (drawn manually; default font lacks ¥).
-// 7px tall to match the glcdfont's 7px glyph rows (content is rows 0..6),
-// so it sits on the same line as the digits.
-static void drawYen(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
-    tft.drawLine(x + 1, y + 0, x + 3, y + 2, color);   // left diagonal
-    tft.drawLine(x + 5, y + 0, x + 3, y + 2, color);   // right diagonal
-    tft.drawLine(x + 3, y + 2, x + 3, y + 6, color);   // stem
-    tft.drawLine(x + 1, y + 4, x + 5, y + 4, color);   // bar
-}
-
 // Bluetooth rune (ᛒ): vertical stem + two angular bows (no text, saves space)
 static void drawBleIcon(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
     tft.drawLine(x + 3, y + 0, x + 3, y + 10, color);
@@ -84,25 +74,33 @@ static void drawWifiIcon(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
     tft.fillArc(cx, cy, 6, 5, 225.0f, 315.0f, color);
 }
 
-// Battery: outline + fill (level by %), yellow bolt while charging.
-// pct < 0 means unknown (e.g. pet is on USB where the cell voltage is hidden).
-// Body is 7px tall to match the glcdfont's 7px glyph rows (0..6), so the icon
-// and the % text share the same vertical span.
+// Battery: self-contained 5-level icon (no text, nothing to misalign).
+// Outline + up to 5 filled slots by %, colored by level; yellow bolt while
+// charging. pct < 0 means unknown (empty outline).
 static void drawBatteryIcon(LGFX& tft, int16_t x, int16_t y, int pct, bool charging) {
-    const int16_t bw = 12, bh = 7;
+    const int16_t bw = 17, bh = 8;
     uint16_t color = ST77XX_GREEN;
     if (pct >= 0) {
         color = (pct <= 20) ? ST77XX_RED : (pct <= 50 ? ST77XX_YELLOW : ST77XX_GREEN);
     }
     tft.drawRect(x, y, bw, bh, color);
-    tft.fillRect(x + bw, y + 2, 2, 3, color);   // + terminal nub
+    tft.fillRect(x + bw, y + 2, 2, 4, color);   // + terminal nub
     if (pct >= 0) {
-        const int fillW = (bw - 2) * pct / 100;
-        if (fillW > 0) tft.fillRect(x + 1, y + 1, fillW, bh - 2, color);
+        int lvl = (pct * 5 + 99) / 100;         // 0..5 (each 20% = one slot)
+        if (lvl > 5) lvl = 5;
+        for (int i = 0; i < lvl; ++i) {
+            tft.fillRect(x + 1 + i * 3, y + 2, 2, bh - 4, color);   // 2px slot, 1px gap
+        }
     }
     if (charging) {
-        tft.fillTriangle(x + 5, y + 0, x + 9, y + 4, x + 5, y + 4, ST77XX_YELLOW);
-        tft.fillTriangle(x + 5, y + 4, x + 1, y + 6, x + 5, y + 6, ST77XX_YELLOW);
+        // pixel-art lightning bolt to the LEFT of the icon (6x8, complete shape)
+        static const uint8_t kBolt[8] = { 0x08, 0x0C, 0x0A, 0x12, 0x11, 0x21, 0x22, 0x14 };
+        const int16_t bx = x - 9;
+        for (int r = 0; r < 8; ++r) {
+            for (int c = 0; c < 6; ++c) {
+                if (kBolt[r] & (0x20 >> c)) tft.drawPixel(bx + c, y + r, ST77XX_YELLOW);
+            }
+        }
     }
 }
 
@@ -129,15 +127,10 @@ void drawStatusBar(PetState state) {
     tft.setTextColor(ST77XX_MAGENTA);
     tft.print(usageText);
 
-    // battery level + charging state
+    // battery: self-contained icon (outline + fill + % inside) + charging bolt
     const int bpct = battery.percent();
     const bool bchg = battery.charging();
     drawBatteryIcon(tft, 236, 4, bpct, bchg);
-    char btxt[8];
-    if (bpct >= 0) snprintf(btxt, sizeof(btxt), "%d%%", bpct); else snprintf(btxt, sizeof(btxt), "--");
-    tft.setCursor(252, 4);   // 2px gap after the battery icon (incl. nub)
-    tft.setTextColor(bchg ? ST77XX_YELLOW : (bpct >= 0 && bpct <= 20 ? ST77XX_RED : ST77XX_WHITE));
-    tft.print(btxt);
 
     const bool bleOk = ble.isOnline();
     const bool wifiOk = wifi.isConnected();
@@ -147,15 +140,14 @@ void drawStatusBar(PetState state) {
     // ---- 底栏：余额(左) + 任务描述(右) ----
     tft.fillRect(0, LAYOUT_FOOT_Y, W, footH, ST77XX_BLACK);
 
-    // left: "DS ¥<balance>" (¥ glyph top-aligned with the text)
+    // left: "DS <balance>"
     tft.setTextColor(ST77XX_WHITE);
     tft.setCursor(6, LAYOUT_FOOT_Y + 4);
-    tft.print("DS");
-    drawYen(tft, 20, LAYOUT_FOOT_Y + 4, ST77XX_WHITE);
+    tft.print("DS ");
     char bal[16];
     strncpy(bal, ble.balanceText(), sizeof(bal) - 1);
     bal[sizeof(bal) - 1] = '\0';
-    tft.setCursor(29, LAYOUT_FOOT_Y + 4);
+    tft.setCursor(24, LAYOUT_FOOT_Y + 4);
     tft.print(bal);
 
     // right: task text in the remaining area
@@ -240,8 +232,7 @@ static void drawInfoScreen(uint32_t nowMs) {
     tft.setTextColor(ST77XX_WHITE);
     tft.setCursor(10, y);
     tft.print("DS ");
-    drawYen(tft, 36, y, ST77XX_WHITE);
-    tft.setCursor(44, y);
+    tft.setCursor(30, y);
     tft.print(ble.balanceText());
     y += 16;
 
@@ -396,6 +387,20 @@ void loop() {
             applyState(PetState::OFFLINE, "link");
         }
         lastShownState = static_cast<PetState>(0xFF);
+    }
+
+    // battery level / charging change => redraw the status bar (the estimate
+    // climbs while on USB and the bolt must appear/disappear promptly)
+    {
+        static int lastBatLvl = -2;
+        static bool lastBatChg = false;
+        const int blvl = battery.percent() >= 0 ? (battery.percent() * 5 + 99) / 100 : -1;
+        const bool bchg = battery.charging();
+        if (blvl != lastBatLvl || bchg != lastBatChg) {
+            lastBatLvl = blvl;
+            lastBatChg = bchg;
+            lastShownState = static_cast<PetState>(0xFF);
+        }
     }
 
     pet.update(now);

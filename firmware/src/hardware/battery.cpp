@@ -8,8 +8,9 @@ void Battery::begin() {
     analogSetPinAttenuation(kAdcPin, ADC_11db);
     Preferences pref;
     pref.begin("codepet", true);
-    percent_ = pref.getInt("bat_pct", -1);   // survive reboots while on USB
+    realPercent_ = pref.getInt("bat_pct", -1);   // survive reboots while on USB
     pref.end();
+    displayPct_ = realPercent_;
     readNow();
 }
 
@@ -34,30 +35,40 @@ void Battery::readNow() {
 
     const bool usb = (mv_ > 4300);   // above the LiPo ceiling => USB rail
 
-    // The TP4065 charger exposes no charge-status pin on this board (only the
-    // red LED via its PROG pin), and GPIO15 must be HIGH for the charge path to
-    // engage (done in setup). So "charging" is inferred: USB power present with
-    // chargeable capacity left. Plugging USB in does not imply charging (a full
-    // cell is not charged).
+    if (usb && !usbPresent_) {
+        // USB just connected: start the charge-time estimate from the last
+        // known real percentage.
+        usbSinceMs_ = millis();
+        pctAtUsb_ = realPercent_;
+        onBatteryCount_ = 0;
+    }
     usbPresent_ = usb;
-    charging_ = usb && (percent_ != 100);
 
     if (usb) {
-        onBatteryCount_ = 0;         // cell voltage hidden while on USB
-    } else if (++onBatteryCount_ >= 2) {
-        // Two consecutive on-battery reads: debounce the plug/unplug transient
-        // (a brief reading in 4.2..4.3V would otherwise fake a full battery).
-        percent_ = percentFromMv(mv_);
-        savePercent();
+        // Cell voltage is hidden on USB; estimate the % from charge time.
+        const int base = (pctAtUsb_ >= 0) ? pctAtUsb_ : 50;
+        const uint32_t elapsedS = (millis() - usbSinceMs_) / 1000;
+        displayPct_ = base + (int)(elapsedS / kSecPerPct);
+        if (displayPct_ > 100) displayPct_ = 100;
+        charging_ = displayPct_ < 100;   // stop when the estimate reaches 100%
+    } else {
+        if (++onBatteryCount_ >= 2) {
+            // Two consecutive on-battery reads: debounce the plug/unplug
+            // transient, then take the real reading.
+            realPercent_ = percentFromMv(mv_);
+            displayPct_ = realPercent_;
+            savePercent();
+        }
+        charging_ = false;
     }
     Serial.printf("[BAT] v=%umV usb=%d chg=%d pct=%d\n",
-                  mv_, (int)usb, (int)charging_, percent_);
+                  mv_, (int)usb, (int)charging_, displayPct_);
 }
 
 void Battery::savePercent() {
     Preferences pref;
     pref.begin("codepet", false);
-    pref.putInt("bat_pct", percent_);
+    pref.putInt("bat_pct", realPercent_);
     pref.end();
 }
 
