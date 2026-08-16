@@ -40,7 +40,7 @@ EVENT_TO_STATE = {
 }
 
 COMPLETED_HOLD_S = 10.0        # 已完成 -> 空闲 after this long (stop celebrating)
-WORKING_STALE_S = 90.0         # WORKING with no new event this long => finished
+WORKING_STALE_S = 45.0         # WORKING with no new event this long => finished
 
 StateCallback = Callable[[dict], Coroutine[None, None, None]]
 
@@ -185,6 +185,11 @@ class DshMonitor:
             if task:
                 agent["task"] = task
                 self._task = task
+        # the agent's own state updates on EVERY event; the global _state gate
+        # below only controls the pet-animation callback, otherwise a second
+        # session whose event equals the global state would never update
+        # (e.g. two sessions finishing -> the second stays WORKING forever)
+        agent["state"] = state
         log.debug("dsh %s -> %s", event, state)
         if state == "COMPLETED":
             agent["completed_at"] = time.time()
