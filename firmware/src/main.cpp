@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <WiFi.h>
 
 #include "display/display_config.h"
 #include "config/config.h"
@@ -7,6 +8,7 @@
 #include "communication/ble_manager.h"
 #include "communication/wifi_server.h"
 #include "hardware/battery.h"
+#include "hardware/buttons.h"
 #include "storage/pet_stats.h"
 #include "ui/chinese_text.h"
 
@@ -28,10 +30,13 @@ PetAnimation pet;
 BleManager ble;
 WifiServer wifi;
 Battery battery;
+Buttons buttons;
 PetStatsStore stats;
 
 static PetState lastShownState = static_cast<PetState>(0xFF);
 static bool externalControl = false;
+static uint32_t showInfoUntilMs_ = 0;   // >0 => button info screen is active
+static bool backlightOn_ = true;
 
 static void applyState(PetState newState, const char* source) {
     const PetState prev = pet.state();
@@ -155,6 +160,117 @@ void drawStatusBar(PetState state) {
     }
 }
 
+// Button 1 long press: cycle the pet animation states for a quick demo.
+static void cyclePetState() {
+    static const PetState order[] = {PetState::IDLE, PetState::WORKING, PetState::WAITING,
+                                     PetState::COMPLETED, PetState::SLEEP};
+    const PetState cur = pet.state();
+    PetState next = order[0];
+    for (uint8_t i = 0; i < sizeof(order) / sizeof(order[0]); ++i) {
+        if (order[i] == cur) {
+            next = order[(i + 1) % (sizeof(order) / sizeof(order[0]))];
+            break;
+        }
+    }
+    externalControl = true;
+    applyState(next, "button");
+    Serial.printf("[BTN] state -> %s\n", petStateName(next));
+}
+
+// Button 1 short press: full-screen status panel for a few seconds.
+// Drawn once and only re-rendered when a displayed value changes (a per-frame
+// fillScreen causes visible flicker).
+static char lastInfoSig_[96] = "";
+
+static void drawInfoScreen(uint32_t nowMs) {
+    tft.fillScreen(ST77XX_BLACK);
+    tft.setTextSize(1);
+    int y = 8;
+
+    tft.setTextColor(ST77XX_CYAN);
+    tft.setCursor(10, y);
+    tft.print("== CodexPet ==");
+    y += 18;
+
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(10, y);
+    tft.print("State ");
+    tft.setTextColor(ST77XX_GREEN);
+    tft.print(petStateName(pet.state()));
+    y += 16;
+
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(10, y);
+    tft.print("BAT ");
+    if (battery.percent() >= 0) {
+        const uint16_t mv = battery.millivolts();
+        tft.setTextColor(ST77XX_GREEN);
+        tft.printf("%u.%02uV %d%%", mv / 1000, (mv % 1000) / 10, battery.percent());
+    } else {
+        tft.setTextColor(ST77XX_YELLOW);
+        tft.print("--");
+    }
+    if (battery.charging()) { tft.setTextColor(ST77XX_YELLOW); tft.print(" [CHG]"); }
+    else if (battery.usbPresent()) { tft.setTextColor(ST77XX_WHITE); tft.print(" [USB]"); }
+    y += 16;
+
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(10, y);
+    tft.print("WiFi ");
+    if (WiFi.isConnected()) {
+        tft.setTextColor(ST77XX_GREEN);
+        tft.print(WiFi.SSID());
+        y += 16;
+        tft.setTextColor(ST77XX_WHITE);
+        tft.setCursor(10, y);
+        tft.print("IP ");
+        tft.print(WiFi.localIP().toString());
+    } else {
+        tft.setTextColor(ST77XX_RED);
+        tft.print("offline (AP ");
+        tft.print(WiFi.softAPIP().toString());
+        tft.print(")");
+    }
+    y += 16;
+
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(10, y);
+    tft.print("DS ");
+    drawYen(tft, 36, y + 1, ST77XX_WHITE);
+    tft.setCursor(44, y);
+    tft.print(ble.balanceText());
+    y += 16;
+
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(10, y);
+    tft.print("Up ");
+    const uint32_t up = nowMs / 1000;
+    tft.print(up / 3600);
+    tft.print("h ");
+    tft.print((up % 3600) / 60);
+    tft.print("m");
+    y += 16;
+
+    tft.setTextColor(ST77XX_MAGENTA);
+    tft.setCursor(10, y);
+    tft.print(usageText);
+}
+
+static void updateInfoScreen(uint32_t nowMs) {
+    char sig[96];
+    const String ssid = WiFi.isConnected() ? WiFi.SSID() : String("-");
+    snprintf(sig, sizeof(sig), "%d|%u|%d|%d|%s|%s|%s|%lu",
+             static_cast<int>(pet.state()),
+             battery.millivolts() / 100,        // 0.1V resolution (hide ADC jitter)
+             battery.percent(), static_cast<int>(battery.charging()),
+             ssid.c_str(), ble.balanceText(), usageText, nowMs / 60000);
+    if (strcmp(sig, lastInfoSig_) != 0) {
+        strncpy(lastInfoSig_, sig, sizeof(lastInfoSig_) - 1);
+        lastInfoSig_[sizeof(lastInfoSig_) - 1] = '\0';
+        drawInfoScreen(nowMs);
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 2000) { delay(10); }
@@ -179,6 +295,7 @@ void setup() {
     pet.begin();
     pet.setState(PetState::IDLE);
     battery.begin();
+    buttons.begin();
     wifi.begin();
     ble.begin();
     Serial.println("[PET] ready");
@@ -193,6 +310,25 @@ void loop() {
     ble.update(now);
     wifi.update();
     battery.update(now);
+
+    // --- Buttons: B1 short = info, B1 long = cycle state, B2 short = backlight ---
+    switch (buttons.update(now)) {
+        case PetButton::B1_SHORT:
+            showInfoUntilMs_ = now + 5000;
+            lastInfoSig_[0] = '\0';   // force a fresh draw
+            Serial.println("[BTN] info screen");
+            break;
+        case PetButton::B1_LONG:
+            cyclePetState();
+            break;
+        case PetButton::B2_SHORT:
+            backlightOn_ = !backlightOn_;
+            ledcWrite(0, backlightOn_ ? 140 : 0);
+            Serial.printf("[BTN] backlight %s\n", backlightOn_ ? "on" : "off");
+            break;
+        default:
+            break;
+    }
 
     // WiFi-driven state (lower priority than BLE packets)
     if (wifi.hasPendingState()) {
@@ -260,12 +396,22 @@ void loop() {
 
     pet.update(now);
 
-    if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
-        lastShownState = pet.state();
-        drawStatusBar(pet.state());
+    // Info screen overrides the normal pet rendering while active.
+    static bool infoWasActive = false;
+    const bool infoActive = (now < showInfoUntilMs_);
+    if (infoActive) {
+        updateInfoScreen(now);
+    } else {
+        if (infoWasActive) {
+            lastShownState = static_cast<PetState>(0xFF);   // force full redraw
+        }
+        if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
+            lastShownState = pet.state();
+            drawStatusBar(pet.state());
+        }
+        pet.draw(tft, 0, LAYOUT_PET_Y);
     }
-
-    pet.draw(tft, 0, LAYOUT_PET_Y);
+    infoWasActive = infoActive;
     frames++;
 
     if (now - lastFpsLog >= 5000) {

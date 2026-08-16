@@ -6,7 +6,6 @@
 
 void Battery::begin() {
     analogSetPinAttenuation(kAdcPin, ADC_11db);
-    pinMode(kChargePin, INPUT_PULLUP);
     Preferences pref;
     pref.begin("codepet", true);
     percent_ = pref.getInt("bat_pct", -1);   // survive reboots while on USB
@@ -34,10 +33,14 @@ void Battery::readNow() {
     samples_ = 0;
 
     const bool usb = (mv_ > 4300);   // above the LiPo ceiling => USB rail
-    const bool chgPin = (digitalRead(kChargePin) == LOW);
 
-    charging_ = chgPin || usb;       // charge pin is active-low while charging
+    // The TP4065 charger exposes no charge-status pin on this board (only the
+    // red LED via its PROG pin), and GPIO15 must be HIGH for the charge path to
+    // engage (done in setup). So "charging" is inferred: USB power present with
+    // chargeable capacity left. Plugging USB in does not imply charging (a full
+    // cell is not charged).
     usbPresent_ = usb;
+    charging_ = usb && (percent_ != 100);
 
     if (usb) {
         onBatteryCount_ = 0;         // cell voltage hidden while on USB
@@ -47,8 +50,8 @@ void Battery::readNow() {
         percent_ = percentFromMv(mv_);
         savePercent();
     }
-    Serial.printf("[BAT] v=%umV usb=%d chgPin=%d chg=%d pct=%d\n",
-                  mv_, (int)usb, (int)chgPin, (int)charging_, percent_);
+    Serial.printf("[BAT] v=%umV usb=%d chg=%d pct=%d\n",
+                  mv_, (int)usb, (int)charging_, percent_);
 }
 
 void Battery::savePercent() {

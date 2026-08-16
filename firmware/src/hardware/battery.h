@@ -3,9 +3,10 @@
 #include <Arduino.h>
 
 // LiPo battery monitoring for the LilyGo T-Display-S3 (320x170).
-// GPIO4 = battery voltage via 1/2 divider; charging state is detected
-// from the charger status pin (GPIO21, active low) and/or a voltage
-// above the charger's ceiling (~4.3V implies USB power is present).
+// GPIO4 = battery voltage via 1/2 divider. The divider sits on the USB-OR'd
+// rail, so it reads ~4.8V on USB and the real cell voltage (3.0..4.2V) on
+// battery power. Charging is inferred (USB present + cell not full) because
+// the TP4065 charger exposes no charge-status pin.
 #if defined(DISPLAY_8080)
 
 class Battery {
@@ -21,7 +22,6 @@ public:
 
 private:
     static constexpr int kAdcPin = 4;
-    static constexpr int kChargePin = 21;
     uint32_t lastReadMs_ = 0;
     uint16_t mv_ = 0;
     int percent_ = -1;
