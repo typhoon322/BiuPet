@@ -27,6 +27,7 @@ public:
     void clearUsageChanged() { usageChanged_ = false; }
 
     const char* balanceText() const { return balanceText_; }
+    const char* balanceTime() const { return balanceTime_; }
     bool balanceChanged() const { return balanceChanged_; }
     void clearBalanceChanged() { balanceChanged_ = false; }
 
@@ -48,6 +49,7 @@ private:
     uint32_t usageTokens_ = 0;
     bool usageChanged_ = false;
     char balanceText_[16] = "--";
+    char balanceTime_[16] = "";   // wall-clock HH:MM:SS of the last refresh
     bool balanceChanged_ = false;
     uint8_t lastLoggedState_ = 0xFF;
 };

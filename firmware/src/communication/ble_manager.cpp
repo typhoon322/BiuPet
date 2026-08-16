@@ -155,11 +155,23 @@ void BleManager::onStateWrite(const uint8_t* data, size_t len) {
 void BleManager::onCommandWrite(const uint8_t* data, size_t len) {
     lastPacketMs_ = millis();
     if (len >= 4 && memcmp(data, "BAL ", 4) == 0) {
-        const size_t n = (len - 4 < sizeof(balanceText_) - 1) ? (len - 4) : (sizeof(balanceText_) - 1);
-        memcpy(balanceText_, data + 4, n);
-        balanceText_[n] = '\0';
+        // format: "BAL <value> <HH:MM:SS>"
+        char buf[32];
+        const size_t n = (len - 4 < sizeof(buf) - 1) ? (len - 4) : (sizeof(buf) - 1);
+        memcpy(buf, data + 4, n);
+        buf[n] = '\0';
+        char* sp = strrchr(buf, ' ');
+        if (sp) {
+            *sp = '\0';
+            strncpy(balanceTime_, sp + 1, sizeof(balanceTime_) - 1);
+            balanceTime_[sizeof(balanceTime_) - 1] = '\0';
+        } else {
+            balanceTime_[0] = '\0';
+        }
+        strncpy(balanceText_, buf, sizeof(balanceText_) - 1);
+        balanceText_[sizeof(balanceText_) - 1] = '\0';
         balanceChanged_ = true;
-        Serial.printf("[BLE] balance: %s\n", balanceText_);
+        Serial.printf("[BLE] balance: %s @ %s\n", balanceText_, balanceTime_);
         return;
     }
     if (len < 7 || memcmp(data, "USAGE ", 6) != 0) {

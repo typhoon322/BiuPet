@@ -35,7 +35,7 @@ PetStatsStore stats;
 
 static PetState lastShownState = static_cast<PetState>(0xFF);
 static bool externalControl = false;
-static uint32_t showInfoUntilMs_ = 0;   // >0 => button info screen is active
+static bool infoShown_ = false;   // Button 1 toggles info screen (no auto-return)
 static bool backlightOn_ = true;
 
 static void applyState(PetState newState, const char* source) {
@@ -234,6 +234,15 @@ static void drawInfoScreen(uint32_t nowMs) {
     tft.print("DS ");
     tft.setCursor(30, y);
     tft.print(ble.balanceText());
+    // refresh time (wall-clock, to the second) when the bridge sent it
+    if (ble.balanceTime()[0] != '\0') {
+        tft.setTextColor(ST77XX_GREEN);
+        tft.setCursor(64, y);
+        tft.print("@");
+        tft.setCursor(76, y);
+        tft.print(ble.balanceTime());
+        tft.setTextColor(ST77XX_WHITE);
+    }
     y += 16;
 
     tft.setTextColor(ST77XX_WHITE);
@@ -254,11 +263,11 @@ static void drawInfoScreen(uint32_t nowMs) {
 static void updateInfoScreen(uint32_t nowMs) {
     char sig[96];
     const String ssid = WiFi.isConnected() ? WiFi.SSID() : String("-");
-    snprintf(sig, sizeof(sig), "%d|%u|%d|%d|%s|%s|%s|%lu",
+    snprintf(sig, sizeof(sig), "%d|%u|%d|%d|%s|%s|%s|%s|%lu",
              static_cast<int>(pet.state()),
              battery.millivolts() / 100,        // 0.1V resolution (hide ADC jitter)
              battery.percent(), static_cast<int>(battery.charging()),
-             ssid.c_str(), ble.balanceText(), usageText, nowMs / 60000);
+             ssid.c_str(), ble.balanceText(), ble.balanceTime(), usageText, nowMs / 60000);
     if (strcmp(sig, lastInfoSig_) != 0) {
         strncpy(lastInfoSig_, sig, sizeof(lastInfoSig_) - 1);
         lastInfoSig_[sizeof(lastInfoSig_) - 1] = '\0';
@@ -309,9 +318,14 @@ void loop() {
     // --- Buttons: B1 short = info, B1 long = cycle state, B2 short = backlight ---
     switch (buttons.update(now)) {
         case PetButton::B1_SHORT:
-            showInfoUntilMs_ = now + 5000;
-            lastInfoSig_[0] = '\0';   // force a fresh draw
-            Serial.println("[BTN] info screen");
+            // toggle info screen (stays until pressed again)
+            infoShown_ = !infoShown_;
+            if (infoShown_) {
+                lastInfoSig_[0] = '\0';   // force a fresh draw
+            } else {
+                lastShownState = static_cast<PetState>(0xFF);   // restore main view
+            }
+            Serial.printf("[BTN] info %s\n", infoShown_ ? "on" : "off");
             break;
         case PetButton::B1_LONG:
             cyclePetState();
@@ -405,9 +419,9 @@ void loop() {
 
     pet.update(now);
 
-    // Info screen overrides the normal pet rendering while active.
+    // Info screen overrides the normal pet rendering while toggled on.
     static bool infoWasActive = false;
-    const bool infoActive = (now < showInfoUntilMs_);
+    const bool infoActive = infoShown_;
     if (infoActive) {
         updateInfoScreen(now);
     } else {
