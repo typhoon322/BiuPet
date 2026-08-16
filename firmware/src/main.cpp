@@ -456,7 +456,8 @@ void loop() {
             break;
         case PetButton::B1_VERY_LONG:
             // Power off: light sleep (keeps USB alive, no reset; ~1mA draw).
-            // Wake = press Button 1 or 2 (GPIO wakeup, light sleep).
+            // Drop GPIO15 (PWR_EN) first so the LCD AND the green power LED go
+            // dark; wake = press Button 1 or 2.
             {
                 tft.fillScreen(ST77XX_BLACK);
                 drawChineseText(tft, 10, 56, "正在关机...", ST77XX_YELLOW, 200);
@@ -470,12 +471,21 @@ void loop() {
                 const uint32_t t0 = millis();
                 while (digitalRead(0) == LOW && millis() - t0 < 10000) delay(20);
                 ledcWrite(0, 0);   // backlight off
+#if defined(PIN_LCD_POWER_ON)
+                digitalWrite(PIN_LCD_POWER_ON, LOW);   // cut LCD power + green LED
+#endif
                 gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
                 gpio_wakeup_enable(GPIO_NUM_14, GPIO_INTR_LOW_LEVEL);
                 esp_sleep_enable_gpio_wakeup();
                 Serial.println("[PET] light sleep");
                 esp_light_sleep_start();   // returns when a button is pressed
                 Serial.println("[PET] woken");
+#if defined(PIN_LCD_POWER_ON)
+                digitalWrite(PIN_LCD_POWER_ON, HIGH);   // re-power the LCD rail
+                delay(100);
+                tft.init();               // ST7789 was power-cycled: re-init
+                tft.setRotation(1);
+#endif
                 ledcWrite(0, kBrightnessLevels[backlightLevel_ - 1]);
                 backlightOn_ = true;
                 lastShownState = static_cast<PetState>(0xFF);
