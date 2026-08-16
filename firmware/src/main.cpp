@@ -46,6 +46,33 @@ static Page page_ = Page::MAIN;
 static char clockDateSig_[32] = "";
 static int clockLastHour_ = -1, clockLastMin_ = -1, clockLastSec_ = -1;
 
+// Backlight state: 5 brightness steps (15/40/50/75/95%), toggled on/off by
+// Button2 short and stepped by Button2 long. Default = level 2 (40%).
+static bool backlightOn_ = true;
+static int backlightLevel_ = 2;               // 1..5, default 40%
+static const uint8_t  kBrightnessPct[5] = { 15, 40, 50, 75, 95 };
+static const uint16_t kBrightnessLevels[5] = { 38, 102, 127, 191, 242 };   // pct*255/100
+static uint32_t brightnessShowUntil_ = 0;     // >now => show the level overlay
+
+// Brightness-level overlay: a centered pill with "亮度" + 5 segments + the %
+// text. While shown, the page underneath is frozen so nothing flickers.
+static void drawBrightnessOverlay() {
+    tft.fillRoundRect(60, 70, 200, 30, 8, 0x0820);
+    tft.drawRoundRect(60, 70, 200, 30, 8, 0x2146);
+    drawChineseText(tft, 70, 77, "亮度", ST77XX_WHITE, 30);   // 24px wide
+    for (int i = 0; i < 5; ++i) {
+        const uint16_t c = (i < backlightLevel_) ? ST77XX_CYAN : 0x2108;
+        tft.fillRect(104 + i * 20, 78, 14, 14, c);
+    }
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%d%%", kBrightnessPct[backlightLevel_ - 1]);
+    tft.setFont(&fonts::Font0);
+    tft.setTextSize(1);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(210, 82);
+    tft.print(pct);
+}
+
 // Draw one clock digit in a fixed-width cell: erase the whole cell first (so
 // a narrower digit never leaves residue) then print CENTERED in the cell, so a
 // narrow '1' sits evenly instead of hugging the left edge.
@@ -59,7 +86,6 @@ static void drawClockDigit(char c, int cx, int cy, int cellW, int cellH, float s
     tft.setCursor(cx + (cellW - gw) / 2, cy);
     tft.print(c);
 }
-static bool backlightOn_ = true;
 
 static void applyState(PetState newState, const char* source) {
     const PetState prev = pet.state();
@@ -338,10 +364,10 @@ static void drawClockPage(uint32_t nowMs) {
                      t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, kWeekCn[t.tm_wday]);
             drawChineseText(tft, 115, 142, dateLine, ST77XX_WHITE, 300);   // ~90px wide, centered
         }
-        // seconds progress bar at the top (full width, 2px), fills over the minute
-        tft.fillRect(16, 10, 288, 2, ST77XX_BLACK);
+        // seconds progress bar at the top (full width, 1px), fills over the minute
+        tft.fillRect(16, 10, 288, 1, ST77XX_BLACK);
         const int fill = 288 * t.tm_sec / 59;
-        if (fill > 0) tft.fillRect(16, 10, fill, 2, ST77XX_CYAN);
+        if (fill > 0) tft.fillRect(16, 10, fill, 1, ST77XX_CYAN);
 
         // Fixed-width digit layout (each digit has its own cell, so the clock
         // never jumps when a digit changes):  HH:MM big, no colon - a plain
@@ -377,7 +403,7 @@ void setup() {
 
     ledcSetup(0, 5000, 8);
     ledcAttachPin(PIN_LCD_BL, 0);
-    ledcWrite(0, 140);  // full brightness washes black out on this panel
+    ledcWrite(0, kBrightnessLevels[backlightLevel_ - 1]);   // default 40%
 
 #if defined(DISPLAY_8080) && defined(PIN_LCD_POWER_ON)
     pinMode(PIN_LCD_POWER_ON, OUTPUT);
@@ -428,8 +454,16 @@ void loop() {
             break;
         case PetButton::B2_SHORT:
             backlightOn_ = !backlightOn_;
-            ledcWrite(0, backlightOn_ ? 140 : 0);
+            ledcWrite(0, backlightOn_ ? kBrightnessLevels[backlightLevel_ - 1] : 0);
             Serial.printf("[BTN] backlight %s\n", backlightOn_ ? "on" : "off");
+            break;
+        case PetButton::B2_LONG:
+            // 5-step brightness; show the level for 2s
+            backlightOn_ = true;
+            backlightLevel_ = (backlightLevel_ % 5) + 1;
+            ledcWrite(0, kBrightnessLevels[backlightLevel_ - 1]);
+            brightnessShowUntil_ = now + 2000;
+            Serial.printf("[BTN] brightness %d/5\n", backlightLevel_);
             break;
         default:
             break;
@@ -528,17 +562,41 @@ void loop() {
             clockLastHour_ = clockLastMin_ = clockLastSec_ = -1;
         }
     }
-    if (page_ == Page::CLOCK) {
-        drawClockPage(now);
-    } else if (page_ == Page::INFO) {
-        updateInfoScreen(now);
-    } else {
-        if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
-            lastShownState = pet.state();
-            drawStatusBar(pet.state());
+    // brightness overlay freezes the page underneath; drawn only when the
+    // level changes (not every frame), so nothing flickers
+    static bool overlayWasActive = false;
+    static int lastOverlayLevel = -1;
+    const bool overlayActive = (now < brightnessShowUntil_);
+    if (overlayActive) {
+        if (!overlayWasActive || backlightLevel_ != lastOverlayLevel) {
+            drawBrightnessOverlay();
+            lastOverlayLevel = backlightLevel_;
         }
-        pet.draw(tft, 0, LAYOUT_PET_Y);
+    } else {
+        lastOverlayLevel = -1;
+        if (overlayWasActive) {
+            if (page_ == Page::CLOCK) {
+                clockDateSig_[0] = '\0';
+                clockLastHour_ = clockLastMin_ = clockLastSec_ = -1;
+            } else if (page_ == Page::INFO) {
+                lastInfoSig_[0] = '\0';
+            } else {
+                lastShownState = static_cast<PetState>(0xFF);
+            }
+        }
+        if (page_ == Page::CLOCK) {
+            drawClockPage(now);
+        } else if (page_ == Page::INFO) {
+            updateInfoScreen(now);
+        } else {
+            if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
+                lastShownState = pet.state();
+                drawStatusBar(pet.state());
+            }
+            pet.draw(tft, 0, LAYOUT_PET_Y);
+        }
     }
+    overlayWasActive = overlayActive;
     frames++;
 
     if (now - lastFpsLog >= 5000) {
