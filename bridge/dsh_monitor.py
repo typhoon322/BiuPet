@@ -40,7 +40,7 @@ EVENT_TO_STATE = {
 }
 
 COMPLETED_HOLD_S = 10.0        # 已完成 -> 空闲 after this long (stop celebrating)
-WORKING_STALE_S = 45.0         # WORKING with no new event this long => finished
+WORKING_STALE_S = 90.0         # WORKING with no new event this long => finished
 
 StateCallback = Callable[[dict], Coroutine[None, None, None]]
 
@@ -78,7 +78,7 @@ class DshMonitor:
         self._task = ""
         self._completed_at = 0.0
         self._last_activity = time.monotonic()
-        self._tracked: dict[str, tuple[int, int]] = {}  # path -> (size, lines_processed)
+        self._tracked: dict[str, tuple[int, int, float]] = {}  # path -> (size, lines, mtime)
         self._meta: dict[str, dict] = {}                # path -> {label, depth}
         self._agents: dict[str, dict] = {}              # agent_id -> {state, task, ts, label, depth}
 
@@ -105,7 +105,9 @@ class DshMonitor:
 
     def _poll_file(self, path: Path):
         try:
-            size = path.stat().st_size
+            st = path.stat()
+            size = st.st_size
+            mtime = st.st_mtime
         except OSError:
             return
         key = str(path)
@@ -120,18 +122,23 @@ class DshMonitor:
             self._meta[key] = meta
             for line in all_lines:
                 self._process_line(line, agent_id, meta)
-            self._tracked[key] = (size, len(all_lines))
+            self._agents.setdefault(agent_id, {}).setdefault("mtime", mtime)
+            self._tracked[key] = (size, len(all_lines), mtime)
             return
-        old_size, lines = self._tracked[key]
-        if size <= old_size:
+        old_size, lines, old_mtime = self._tracked[key]
+        if size <= old_size and mtime <= old_mtime:
             return
         text = _decompress(path)
         all_lines = text.splitlines()
         meta = self._meta.get(key) or self._scan_meta(all_lines, path)
         self._meta[key] = meta
-        for line in all_lines[lines:]:
+        # after a compaction rewrite the file can be shorter than what we
+        # already processed: restart from scratch so state stays in sync
+        start = 0 if len(all_lines) < lines else lines
+        for line in all_lines[start:]:
             self._process_line(line, agent_id, meta)
-        self._tracked[key] = (size, len(all_lines))
+        self._agents.setdefault(agent_id, {})["mtime"] = mtime
+        self._tracked[key] = (size, len(all_lines), mtime)
 
     @staticmethod
     def _scan_meta(lines: list[str], path: Path) -> dict:
@@ -285,6 +292,11 @@ class DshMonitor:
         for a in self._agents.values():
             if a.get("state") == "COMPLETED" and now - a.get("completed_at", 0) >= COMPLETED_HOLD_S:
                 a["state"] = "IDLE"
-            if a.get("state") == "WORKING" and now - a.get("ts", now) > WORKING_STALE_S:
+            # activity = the file's physical mtime (events are batch-flushed,
+            # so the last event time can be stale even while the session is
+            # actively writing); WORKING with no writes for a while means the
+            # window was closed / the run stalled: mark it finished
+            activity = a.get("mtime") or a.get("ts", now)
+            if a.get("state") == "WORKING" and now - activity > WORKING_STALE_S:
                 a["state"] = "COMPLETED"
                 a["completed_at"] = now
