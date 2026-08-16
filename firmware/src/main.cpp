@@ -56,12 +56,14 @@ static void applyState(PetState newState, const char* source) {
 static char bottomText[64] = "";
 char usageText[32] = "usage: -";
 
-// ¥ glyph: "Y" + horizontal bar (drawn manually; default font lacks ¥)
+// ¥ glyph: "Y" + horizontal bar (drawn manually; default font lacks ¥).
+// 7px tall to match the glcdfont's 7px glyph rows (content is rows 0..6),
+// so it sits on the same line as the digits.
 static void drawYen(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
-    tft.drawLine(x + 1, y + 0, x + 3, y + 3, color);
-    tft.drawLine(x + 5, y + 0, x + 3, y + 3, color);
-    tft.drawLine(x + 3, y + 3, x + 3, y + 7, color);
-    tft.drawLine(x + 1, y + 4, x + 5, y + 4, color);
+    tft.drawLine(x + 1, y + 0, x + 3, y + 2, color);   // left diagonal
+    tft.drawLine(x + 5, y + 0, x + 3, y + 2, color);   // right diagonal
+    tft.drawLine(x + 3, y + 2, x + 3, y + 6, color);   // stem
+    tft.drawLine(x + 1, y + 4, x + 5, y + 4, color);   // bar
 }
 
 // Bluetooth rune (ᛒ): vertical stem + two angular bows (no text, saves space)
@@ -84,22 +86,23 @@ static void drawWifiIcon(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
 
 // Battery: outline + fill (level by %), yellow bolt while charging.
 // pct < 0 means unknown (e.g. pet is on USB where the cell voltage is hidden).
-// Body is 8px tall to match the 6x8 font so the icon and % text align.
+// Body is 7px tall to match the glcdfont's 7px glyph rows (0..6), so the icon
+// and the % text share the same vertical span.
 static void drawBatteryIcon(LGFX& tft, int16_t x, int16_t y, int pct, bool charging) {
-    const int16_t bw = 12, bh = 8;
+    const int16_t bw = 12, bh = 7;
     uint16_t color = ST77XX_GREEN;
     if (pct >= 0) {
         color = (pct <= 20) ? ST77XX_RED : (pct <= 50 ? ST77XX_YELLOW : ST77XX_GREEN);
     }
     tft.drawRect(x, y, bw, bh, color);
-    tft.fillRect(x + bw, y + 2, 2, 4, color);   // + terminal nub (vertically centered)
+    tft.fillRect(x + bw, y + 2, 2, 3, color);   // + terminal nub
     if (pct >= 0) {
         const int fillW = (bw - 2) * pct / 100;
         if (fillW > 0) tft.fillRect(x + 1, y + 1, fillW, bh - 2, color);
     }
     if (charging) {
         tft.fillTriangle(x + 5, y + 0, x + 9, y + 4, x + 5, y + 4, ST77XX_YELLOW);
-        tft.fillTriangle(x + 5, y + 4, x + 1, y + 7, x + 5, y + 7, ST77XX_YELLOW);
+        tft.fillTriangle(x + 5, y + 4, x + 1, y + 6, x + 5, y + 6, ST77XX_YELLOW);
     }
 }
 
