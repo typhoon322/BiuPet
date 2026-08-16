@@ -28,6 +28,14 @@
 #define LAYOUT_PET_Y   66
 #endif
 
+// Left agent-status panel on the main page (T-Display-S3 only): the pet
+// animation area shifts right by this much. 0 on the full-width SPI boards.
+#if defined(DISPLAY_8080)
+#define AGENT_PANEL_W  120
+#else
+#define AGENT_PANEL_W  0
+#endif
+
 LGFX tft;
 PetAnimation pet;
 BleManager ble;
@@ -55,6 +63,10 @@ static int backlightLevel_ = 2;               // 1..5, default 40%
 static const uint8_t  kBrightnessPct[5] = { 15, 40, 50, 75, 95 };
 static const uint16_t kBrightnessLevels[5] = { 38, 102, 127, 191, 242 };   // pct*255/100
 static uint32_t brightnessShowUntil_ = 0;     // >now => show the level overlay
+
+// Main page: left agent panel needs a repaint when the list changed or the
+// region was covered (overlay / page re-entry).
+static bool agentPanelDirty_ = true;
 
 // Brightness-level overlay: a centered pill with "亮度" + 5 segments + the %
 // text. While shown, the page underneath is frozen so nothing flickers.
@@ -327,6 +339,19 @@ static void updateInfoScreen(uint32_t nowMs) {
     }
 }
 
+// Agent status colors, following the DSH web UI: idle=green, working=blue,
+// waiting (needs approval)=orange, completed=cyan, error=red, sleep/offline=gray.
+static const char* const kAgentStateCn[] = {"空闲", "工作中", "等待中", "已完成", "出错", "睡眠", "离线"};
+static const uint16_t kAgentStateColor[] = {
+    ST77XX_GREEN,    // IDLE
+    0x54BF,          // WORKING (bright blue)
+    0xFD20,          // WAITING (orange, needs approval)
+    ST77XX_CYAN,     // COMPLETED
+    ST77XX_RED,      // ERROR
+    0x7BEF,          // SLEEP (gray)
+    0x4208,          // OFFLINE (dark gray)
+};
+
 // Agents page: list every active agent (from the bridge "AGENTS" message) with
 // its state. Redraws only when the list changes.
 static void drawAgentsPage() {
@@ -343,17 +368,50 @@ static void drawAgentsPage() {
         tft.print("no active agents");
         return;
     }
-    static const char* const kStateCn[] = {"空闲", "工作中", "等待中", "已完成", "出错", "睡眠", "离线"};
-    static const uint16_t kStateColor[] = {ST77XX_WHITE, ST77XX_GREEN, ST77XX_YELLOW,
-                                           ST77XX_CYAN, ST77XX_RED, 0x4208, 0x4208};
     for (uint8_t i = 0; i < n && i < 8; ++i) {
         const BleManager::AgentInfo& a = ble.agents()[i];
         const uint8_t st = (a.state <= 6) ? a.state : 0;
         tft.setTextColor(ST77XX_WHITE);
         tft.setCursor(20, 34 + i * 18);
         tft.print(a.name);
-        drawChineseText(tft, 170, 32 + i * 18, kStateCn[st], kStateColor[st], 90);
+        drawChineseText(tft, 170, 32 + i * 18, kAgentStateCn[st], kAgentStateColor[st], 90);
     }
+}
+
+// Main-page agent list: compact left panel, agent names colored by status
+// (green idle / blue working / orange needs-approval / ...). Redrawn only when
+// the list changes or the panel region was covered by an overlay.
+static void drawAgentPanel() {
+#if defined(DISPLAY_8080)
+    const int y0 = LAYOUT_TOP_H;
+    const int h = LAYOUT_FOOT_Y - LAYOUT_TOP_H;
+    tft.fillRect(0, y0, AGENT_PANEL_W, h, ST77XX_BLACK);
+    tft.drawFastVLine(AGENT_PANEL_W - 1, y0, h, 0x2108);   // subtle divider
+    tft.setFont(&fonts::Font0);
+    tft.setTextSize(1);
+    const uint8_t n = ble.agentCount();
+    if (n == 0) {
+        tft.setTextColor(0x4208);
+        tft.setCursor(6, y0 + 6);
+        tft.print("no agents");
+        return;
+    }
+    const uint8_t rows = (n < 8) ? n : 8;
+    for (uint8_t i = 0; i < rows; ++i) {
+        const BleManager::AgentInfo& a = ble.agents()[i];
+        const uint8_t st = (a.state <= 6) ? a.state : 0;
+        tft.setTextColor(kAgentStateColor[st]);
+        tft.setCursor(6, y0 + 2 + i * 15);
+        const int maxCh = (AGENT_PANEL_W - 10) / 6;   // 6px per char
+        char name[25];
+        strncpy(name, a.name, sizeof(name) - 1);
+        name[sizeof(name) - 1] = '\0';
+        if (strlen(name) > static_cast<size_t>(maxCh)) name[maxCh] = '\0';
+        tft.print(name);
+    }
+#else
+    (void)0;   // no panel on the full-width SPI boards
+#endif
 }
 
 static void updateAgentsPage() {
@@ -683,8 +741,17 @@ void loop() {
             if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
                 lastShownState = pet.state();
                 drawStatusBar(pet.state());
+                agentPanelDirty_ = true;   // full redraw: repaint the panel too
             }
-            pet.draw(tft, 0, LAYOUT_PET_Y);
+            if (ble.agentsChanged()) {
+                ble.clearAgentsChanged();
+                agentPanelDirty_ = true;
+            }
+            if (agentPanelDirty_) {
+                agentPanelDirty_ = false;
+                drawAgentPanel();
+            }
+            pet.draw(tft, AGENT_PANEL_W, LAYOUT_PET_Y);
         }
     }
     overlayWasActive = overlayActive;

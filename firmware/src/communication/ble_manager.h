@@ -31,9 +31,9 @@ public:
     bool balanceChanged() const { return balanceChanged_; }
     void clearBalanceChanged() { balanceChanged_ = false; }
 
-    // per-agent status list ("AGENTS codex-3f2:1;dsh-7a1:2;...")
+    // per-agent status list ("AGENTS codex-3f2:1;dsh-CodexPet-0b47:1;...")
     struct AgentInfo {
-        char name[13];
+        char name[25];
         uint8_t state;   // PetState numeric
     };
     uint8_t agentCount() const { return agentCount_; }

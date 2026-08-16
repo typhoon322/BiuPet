@@ -7,6 +7,22 @@ namespace {
 
 const float TAU = 6.2831853f;
 
+// Walkable region of the 320px canvas. On the T-Display-S3 the main page
+// reserves a left panel for the agent list, so the canvas is pushed 120px to
+// the right and the cat only paces the visible 200px; the 320x240 SPI boards
+// keep the full width.
+#if defined(DISPLAY_8080)
+constexpr float WALK_X_MIN   = 8.0f;
+constexpr float WALK_X_MAX   = 192.0f;
+constexpr float BTFLY_X_LO   = 20.0f;
+constexpr float BTFLY_X_SPAN = 140.0f;
+#else
+constexpr float WALK_X_MIN   = 40.0f;
+constexpr float WALK_X_MAX   = 280.0f;
+constexpr float BTFLY_X_LO   = 70.0f;
+constexpr float BTFLY_X_SPAN = 180.0f;
+#endif
+
 uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
@@ -101,12 +117,12 @@ void PetAnimation::update(uint32_t nowMs) {
             facingLeft_ = walkDir_ < 0.0f;
             walkPhase_ += 4.6f * dt;              // ~0.73 Hz step cycle
             walkX_ += walkDir_ * 26.0f * dt;      // ~26 px/s
-            if (walkX_ > 280.0f) {
-                walkX_ = 280.0f;
+            if (walkX_ > WALK_X_MAX) {
+                walkX_ = WALK_X_MAX;
                 walkDir_ = -1.0f;
             }
-            if (walkX_ < 40.0f) {
-                walkX_ = 40.0f;
+            if (walkX_ < WALK_X_MIN) {
+                walkX_ = WALK_X_MIN;
                 walkDir_ = 1.0f;
             }
             bob_ = sinf(walkPhase_) * 0.35f;      // gentle body bob
@@ -115,7 +131,7 @@ void PetAnimation::update(uint32_t nowMs) {
         case PetState::WORKING: {
             // chase the butterfly: leopard run, then rear up and pounce
             butterflyPhase_ += dt;
-            butterflyX_ = 70.0f + 180.0f * (0.5f + 0.5f * sinf(butterflyPhase_ * 0.8f));
+            butterflyX_ = BTFLY_X_LO + BTFLY_X_SPAN * (0.5f + 0.5f * sinf(butterflyPhase_ * 0.8f));
             butterflyY_ = 48.0f + 22.0f * sinf(butterflyPhase_ * 1.6f);
             const float dx = butterflyX_ - walkX_;
             if (pounceT_ >= 0.0f) {
@@ -150,9 +166,9 @@ void PetAnimation::update(uint32_t nowMs) {
                     pounceT_ = 0.0f;   // in range: leap!
                 }
             }
-            if (walkX_ < 40.0f) walkX_ = 40.0f;
-            if (walkX_ > 280.0f) walkX_ = 280.0f;
-            if (walkX_ <= 40.0f || walkX_ >= 280.0f) bob_ = 0.0f;   // no wall bounce
+            if (walkX_ < WALK_X_MIN) walkX_ = WALK_X_MIN;
+            if (walkX_ > WALK_X_MAX) walkX_ = WALK_X_MAX;
+            if (walkX_ <= WALK_X_MIN || walkX_ >= WALK_X_MAX) bob_ = 0.0f;   // no wall bounce
             eyesOpen_ = 0.7f + 0.3f * sinf(phase * 3.0f);
             mouthStyle_ = 1;
             headTiltY_ = 1.0f;

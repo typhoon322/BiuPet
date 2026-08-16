@@ -114,11 +114,13 @@ class BleBridge:
 
     async def send_agents(self, text: str):
         """Send the per-agent status list over the command char
-        (e.g. "AGENTS codex-3f2:1;dsh-7a1:2" where 1=WORKING 2=WAITING)."""
+        (e.g. "AGENTS codex-3f2:1;dsh-CodexPet-0b47:1" where 1=WORKING).
+        Longer than the 63-byte command cap: NimBLE/CoreBluetooth negotiate a
+        185-byte ATT MTU, so an 8-agent list (~150 B) fits in one write."""
         if self._client is None or not self._client.is_connected or not self._command_char:
             return
         try:
-            msg = f"AGENTS {text}".encode("utf-8")[:63]
+            msg = f"AGENTS {text}".encode("utf-8")[:180]
             await self._client.write_gatt_char(self._command_char, msg, response=True)
             log.info("agents sent: %s", text)
         except Exception as e:

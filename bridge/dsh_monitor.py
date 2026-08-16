@@ -146,13 +146,20 @@ class DshMonitor:
 
     @staticmethod
     def _agent_id_for(path: Path) -> str:
-        """Short agent id from a session path (<slug>/session-<uuid>/)."""
-        aid = path.parent.name or ""
-        if aid.startswith("session-"):
-            aid = aid[len("session-"):]
-        if not aid:
-            aid = "dsh"
-        return ("dsh-" + aid)[:12]
+        """Short agent id: workspace name + session uuid tail.
+
+        path = .../sessions/<slug>/session-<uuid>/session.jsonl.zstd
+        -> "dsh-CodexPet-0b47" (the last path segment of the workspace slug,
+        so the pet shows which project the agent is working in).
+        """
+        slug = path.parent.parent.name or ""
+        tail = path.parent.name
+        if tail.startswith("session-"):
+            tail = tail[len("session-"):]
+        short = slug.strip("-").split("-")[-1] if slug else ""
+        if not short:
+            short = "dsh"
+        return ("dsh-" + short + "-" + tail[:4])[:24]
 
     async def _apply(self, state: str, task: str, agent_id: str = "dsh"):
         agent = self._agents.setdefault(agent_id, {"state": state, "task": "", "ts": 0.0})
