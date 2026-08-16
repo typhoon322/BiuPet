@@ -28,7 +28,7 @@ const uint16_t COLOR_RED      = rgb565(235, 82, 82);
 const uint16_t COLOR_STAR     = rgb565(255, 214, 84);
 const uint16_t COLOR_TEAL     = rgb565(104, 220, 210);
 
-void fillRoundRectAuto(GFXcanvas16& c, int16_t x, int16_t y, int16_t w, int16_t h, int16_t r, uint16_t color) {
+void fillRoundRectAuto(LGFX_Sprite& c, int16_t x, int16_t y, int16_t w, int16_t h, int16_t r, uint16_t color) {
     c.fillRoundRect(x, y, w, h, r, color);
 }
 
@@ -37,6 +37,8 @@ void fillRoundRectAuto(GFXcanvas16& c, int16_t x, int16_t y, int16_t w, int16_t 
 PetAnimation::PetAnimation() = default;
 
 void PetAnimation::begin() {
+    canvas_.setColorDepth(16);
+    canvas_.createSprite(CANVAS_W, CANVAS_H);
     stateStartedMs_ = millis();
     lastFrameMs_ = millis();
 }
@@ -193,7 +195,7 @@ void PetAnimation::update(uint32_t nowMs) {
     }
 }
 
-void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
+void PetAnimation::draw(LGFX& tft, int16_t x, int16_t y) {
     canvas_.fillScreen(COLOR_BG);
 
     const float t = static_cast<float>(millis() - stateStartedMs_) / 1000.0f;
@@ -224,17 +226,7 @@ void PetAnimation::draw(Adafruit_ST7789& tft, int16_t x, int16_t y) {
 
     drawSymbols2(cx, ground - kFrameH * 2 - 8, t);
 
-    const uint16_t* buf = canvas_.getBuffer();
-    tft.startWrite();
-    tft.setAddrWindow(x, y, CANVAS_W, CANVAS_H);
-    uint32_t total = CANVAS_W * CANVAS_H;
-    uint32_t off = 0;
-    while (off < total) {
-        const uint32_t n = (total - off > 1024) ? 1024 : (total - off);
-        tft.writePixels(const_cast<uint16_t*>(buf + off), n);
-        off += n;
-    }
-    tft.endWrite();
+    canvas_.pushSprite(&tft, x, y);
 }
 
 uint16_t PetAnimation::desaturate(uint16_t c) {

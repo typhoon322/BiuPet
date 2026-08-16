@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Adafruit_ST7789.h>
+#include "display/display_config.h"
 #include "pet_state.h"
 #include "ui/cat_frames.h"
 
@@ -11,7 +11,7 @@ public:
     void setState(PetState state);
     PetState state() const { return state_; }
     void update(uint32_t nowMs);
-    void draw(Adafruit_ST7789& tft, int16_t x, int16_t y);
+    void draw(LGFX& tft, int16_t x, int16_t y);
 
 private:
     // full-screen canvas: cat walks across the whole 320px display
@@ -20,7 +20,7 @@ private:
     static constexpr int16_t CANVAS_H = 130;
 
     PetState state_ = PetState::IDLE;
-    GFXcanvas16 canvas_{CANVAS_W, CANVAS_H};
+    LGFX_Sprite canvas_;
     uint32_t stateStartedMs_ = 0;
     uint32_t lastFrameMs_ = 0;
     int32_t frame_ = 0;

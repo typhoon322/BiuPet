@@ -1,9 +1,7 @@
 #include <Arduino.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7789.h>
 #include <pgmspace.h>
-#include <SPI.h>
 
+#include "display/display_config.h"
 #include "config/config.h"
 #include "pet/pet_state.h"
 #include "pet/pet_animation.h"
@@ -12,7 +10,20 @@
 #include "storage/pet_stats.h"
 #include "ui/chinese_text.h"
 
-Adafruit_ST7789 tft(PIN_LCD_CS, PIN_LCD_DC, PIN_LCD_RST);
+// Screen layout (differs per board: 320x240 SPI vs 320x170 parallel 8080)
+#if defined(DISPLAY_8080)
+#define LAYOUT_TOP_H   18
+#define LAYOUT_TASK_Y  134
+#define LAYOUT_FOOT_Y  150
+#define LAYOUT_PET_Y   14
+#else
+#define LAYOUT_TOP_H   20
+#define LAYOUT_TASK_Y  198
+#define LAYOUT_FOOT_Y  216
+#define LAYOUT_PET_Y   66
+#endif
+
+LGFX tft;
 PetAnimation pet;
 BleManager ble;
 WifiServer wifi;
@@ -65,9 +76,11 @@ static const uint8_t kDsWhaleBmp[] PROGMEM = {
     0xE0, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFC, 0x00, 0x00,
 };
 
-static GFXcanvas16 whaleCanvas_{26, 16};
+static LGFX_Sprite whaleCanvas_;
 
 static void precomputeWhale() {
+    whaleCanvas_.setColorDepth(16);
+    whaleCanvas_.createSprite(26, 16);
     whaleCanvas_.fillScreen(0x0000);
     for (int r = 0; r < 16; ++r) {
         for (int c = 0; c < 26; ++c) {
@@ -90,23 +103,16 @@ static void precomputeWhale() {
     }
 }
 
-static void drawWhale(Adafruit_ST7789& tft, int16_t x, int16_t y) {
-    const uint16_t* buf = whaleCanvas_.getBuffer();
-    tft.startWrite();
-    tft.setAddrWindow(x, y, 26, 16);
-    uint32_t total = 26 * 16;
-    uint32_t off = 0;
-    while (off < total) {
-        const uint32_t n = (total - off > 1024) ? 1024 : (total - off);
-        tft.writePixels(const_cast<uint16_t*>(buf + off), n);
-        off += n;
-    }
-    tft.endWrite();
+static void drawWhale(LGFX& tft, int16_t x, int16_t y) {
+    whaleCanvas_.pushSprite(&tft, x, y);
 }
 
 void drawStatusBar(PetState state) {
+    const int W = tft.width();
+    const int footH = tft.height() - LAYOUT_FOOT_Y;
+
     // 顶栏：状态名 + 两个彩色圆点
-    tft.fillRect(0, 0, 320, 20, ST77XX_BLACK);
+    tft.fillRect(0, 0, W, LAYOUT_TOP_H, ST77XX_BLACK);
     tft.setCursor(6, 4);
     tft.setTextColor(ST77XX_CYAN);
     tft.setTextSize(1);
@@ -126,22 +132,23 @@ void drawStatusBar(PetState state) {
     tft.print("WiFi");
 
     // 任务行（中文）
-    tft.fillRect(0, 198, 320, 16, ST77XX_BLACK);
+    tft.fillRect(0, LAYOUT_TASK_Y, W, 16, ST77XX_BLACK);
     if (bottomText[0] != '\0') {
-        drawChineseText(tft, 8, 198, bottomText, ST77XX_CYAN, 304);
+        drawChineseText(tft, 8, LAYOUT_TASK_Y, bottomText, ST77XX_CYAN, W - 16);
     }
 
     // 底栏：Lv / 用量 / 余额 单行
-    tft.fillRect(0, 216, 320, 24, ST77XX_BLACK);
+    tft.fillRect(0, LAYOUT_FOOT_Y, W, footH, ST77XX_BLACK);
+    const int footTextY = LAYOUT_FOOT_Y + 4;
     const auto& st = stats.stats();
     char lv[16];
     snprintf(lv, sizeof(lv), "Lv.%u", st.level);
-    tft.setCursor(8, 220);
+    tft.setCursor(8, footTextY);
     tft.setTextColor(ST77XX_GREEN);
     tft.setTextSize(1);
     tft.print(lv);
 
-    tft.setCursor(52, 220);
+    tft.setCursor(52, footTextY);
     tft.setTextColor(ST77XX_MAGENTA);
     tft.print(usageText);
 
@@ -150,10 +157,10 @@ void drawStatusBar(PetState state) {
     bal6[6] = '\0';
     char balFixed[7];
     snprintf(balFixed, sizeof(balFixed), "%6s", bal6);
-    tft.setCursor(268, 220);
+    tft.setCursor(268, footTextY);
     tft.setTextColor(ST77XX_WHITE);
     tft.print(balFixed);
-    drawWhale(tft, 238, 218);
+    drawWhale(tft, 238, LAYOUT_FOOT_Y + 2);
 }
 
 void setup() {
@@ -165,20 +172,13 @@ void setup() {
     ledcAttachPin(PIN_LCD_BL, 0);
     ledcWrite(0, 140);  // full brightness washes black out on this panel
 
-    pinMode(PIN_LCD_RST, OUTPUT);
-    digitalWrite(PIN_LCD_RST, HIGH);
-    delay(10);
-    digitalWrite(PIN_LCD_RST, LOW);
-    delay(20);
-    digitalWrite(PIN_LCD_RST, HIGH);
-    delay(20);
+#if defined(DISPLAY_8080) && defined(PIN_LCD_POWER_ON)
+    pinMode(PIN_LCD_POWER_ON, OUTPUT);
+    digitalWrite(PIN_LCD_POWER_ON, HIGH);  // T-Display-S3 LCD power enable
+#endif
 
-    SPI.begin(PIN_LCD_SCK, -1, PIN_LCD_MOSI, PIN_LCD_CS);
-    tft.init(240, 320);
+    tft.init();
     tft.setRotation(1);
-    tft.invertDisplay(false);
-    tft.setSPISpeed(60000000);
-
     tft.fillScreen(ST77XX_BLACK);
     tft.setTextWrap(false);
 
@@ -271,7 +271,7 @@ void loop() {
         drawStatusBar(pet.state());
     }
 
-    pet.draw(tft, 0, 66);
+    pet.draw(tft, 0, LAYOUT_PET_Y);
     frames++;
 
     if (now - lastFpsLog >= 5000) {
