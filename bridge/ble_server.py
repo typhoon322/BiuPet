@@ -23,6 +23,16 @@ STATE_ENUM = {
 }
 
 
+def _trim_utf8(data: bytes) -> bytes:
+    """Cut `data` at a UTF-8 character boundary: drop any dangling
+    continuation bytes AND the lead byte of a half-copied character."""
+    while data and (data[-1] & 0xC0) == 0x80:
+        data = data[:-1]
+    if data and (data[-1] & 0xC0) == 0xC0:
+        data = data[:-1]
+    return data
+
+
 class BleBridge:
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -69,20 +79,23 @@ class BleBridge:
 
     async def send_state(self, state: dict):
         self._last_state = state.get("state", "IDLE")
-        task = state.get("task", "") or ""
-        if task and task != self._last_task:
-            self._last_task = task
-            if self._client and self._client.is_connected and self._task_char:
-                try:
-                    data = task.encode("utf-8")[:63]
-                    # never split a multi-byte UTF-8 char at the 63-byte limit
-                    while data and (data[-1] & 0xC0) == 0x80:
-                        data = data[:-1]
-                    await self._client.write_gatt_char(self._task_char, data, response=True)
-                    log.info("task sent: %s", task)
-                except Exception as e:
-                    log.warning("task send failed: %s", e)
         await self._pending.put(state)
+
+    async def send_task(self, task: str):
+        """Send the current task text over the task char (63-byte cap, never
+        splitting a UTF-8 char). Dedups via the connection-level _last_task,
+        which is reset on every reconnect."""
+        if not task or task == self._last_task:
+            return
+        self._last_task = task
+        if self._client is None or not self._client.is_connected or not self._task_char:
+            return
+        try:
+            data = _trim_utf8(task.encode("utf-8")[:63])
+            await self._client.write_gatt_char(self._task_char, data, response=True)
+            log.info("task sent: %s", task)
+        except Exception as e:
+            log.warning("task send failed: %s", e)
 
     async def send_usage(self, tokens: int):
         """Send today's token usage over the command char without changing state."""
@@ -120,7 +133,7 @@ class BleBridge:
         if self._client is None or not self._client.is_connected or not self._command_char:
             return
         try:
-            msg = f"AGENTS {text}".encode("utf-8")[:180]
+            msg = _trim_utf8(f"AGENTS {text}".encode("utf-8")[:180])
             await self._client.write_gatt_char(self._command_char, msg, response=True)
             log.info("agents sent: %s", text)
         except Exception as e:

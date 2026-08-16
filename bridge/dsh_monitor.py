@@ -170,14 +170,19 @@ class DshMonitor:
         agent["depth"] = meta.get("depth", agent["depth"])
         t = rec.get("time")
         agent["ts"] = (t / 1000.0) if isinstance(t, (int, float)) and t > 0 else time.time()
-        task = self._extract_task(rec) or self._task
-        if task:
-            self._task = task
+        # a session's task = its latest user message (assistant replies are
+        # not tasks, they'd overwrite the real request with "好的，我来处理…")
+        if event == "user/message":
+            task = self._extract_task(rec)
+            if task:
+                agent["task"] = task
+                self._task = task
         log.debug("dsh %s -> %s", event, state)
         if state == "COMPLETED":
             agent["completed_at"] = time.time()
         if state != self._state:
-            asyncio.get_event_loop().create_task(self._apply(state, task, agent_id))
+            asyncio.get_event_loop().create_task(
+                self._apply(state, agent.get("task", "") or self._task, agent_id))
 
     @staticmethod
     def _extract_task(rec: dict) -> str:
@@ -209,7 +214,7 @@ class DshMonitor:
     async def _apply(self, state: str, task: str, agent_id: str = "dsh"):
         agent = self._agents.setdefault(agent_id, {"state": state, "task": "", "ts": 0.0})
         agent["state"] = state
-        agent["task"] = self._task
+        agent["task"] = task or agent.get("task", "")
         # note: agent["ts"] is owned by _process_line (real event time) and must
         # not be overwritten here, otherwise replayed history looks "now".
         if state == self._state:
@@ -219,7 +224,7 @@ class DshMonitor:
             await self._cb({
                 "state": state,
                 "progress": 0,
-                "task": self._task,
+                "task": self.current_task(),
                 "timestamp": int(time.time()),
             })
 
@@ -235,6 +240,26 @@ class DshMonitor:
             items.append((a["ts"], a.get("label", aid), a["state"]))
         items.sort(reverse=True)
         return [(label, st) for _, label, st in items]
+
+    def current_task(self) -> str:
+        """The task text the pet should show: the newest busy session's latest
+        user message, falling back to the most recent session with a task."""
+        now = time.time()
+        items = []
+        for a in self._agents.values():
+            if a.get("depth", 1) != 0:
+                continue
+            if a.get("ts", 0) < now - SESSION_ACTIVE_S:
+                continue
+            items.append((a["ts"], a))
+        items.sort(reverse=True)
+        for _, a in items:
+            if a.get("state") == "WORKING" and a.get("task"):
+                return a["task"]
+        for _, a in items:
+            if a.get("task"):
+                return a["task"]
+        return ""
 
     async def _maybe_hold(self):
         """Per-session housekeeping, run every second:

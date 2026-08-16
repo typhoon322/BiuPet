@@ -164,10 +164,21 @@ async def main():
         while not stop_event.is_set():
             try:
                 agents = monitor.agents_snapshot() + dsh.agents_snapshot()
-                text = ";".join(f"{name}:{AGENT_STATE_NUM.get(st, 0)}" for name, st in agents)
+                # same workspace can host several sessions: number duplicates
+                # (CodexPet, CodexPet2, ...) so the pet can tell them apart
+                seen: dict[str, int] = {}
+                text_parts = []
+                for name, st in agents:
+                    seen[name] = seen.get(name, 0) + 1
+                    label = name if seen[name] == 1 else f"{name}{seen[name]}"
+                    text_parts.append(f"{label}:{AGENT_STATE_NUM.get(st, 0)}")
+                text = ";".join(text_parts)
                 if text != last_sent:
                     last_sent = text
                     await bridge.send_agents(text)
+                # footer task = the busy session's latest user message
+                task = dsh.current_task() or monitor.current_task() or ""
+                await bridge.send_task(task)
             except Exception as e:
                 log.warning("agents loop error: %s", e)
             try:

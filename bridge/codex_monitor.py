@@ -264,3 +264,7 @@ class CodexMonitor:
                   if now - a.get("ts", 0) <= 120]
         active.sort(reverse=True)
         return [(aid, st) for _, aid, st in active]
+
+    def current_task(self) -> str:
+        """The most recent task text for the pet footer."""
+        return self._current_task
