@@ -27,3 +27,8 @@ debug:
 dsh:
   session_dir: ~/.dsh/sessions
   storage_file: ~/.dsh/storages/session_projcache.json
+
+# DeepSeek API key for the balance endpoint. Put the real key in
+# config.local.yaml (gitignored) so it never lands in the repo.
+deepseek:
+  api_key: ""

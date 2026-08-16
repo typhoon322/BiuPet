@@ -22,7 +22,19 @@ DS_BALANCE_URL = "https://api.deepseek.com/user/balance"
 
 
 def load_deepseek_key() -> str:
-    """Read the DeepSeek key from the Codex config (same source Codex uses)."""
+    """Read the DeepSeek key, in order: bridge config.local.yaml / config.yaml
+    (deepseek.api_key), then the DEEPSEEK_API_KEY env var, then the Codex config
+    (~/.codex/config.toml, same source Codex uses)."""
+    try:
+        cfg = load_config()
+        key = (cfg.get("deepseek", {}) or {}).get("api_key", "").strip()
+        if key:
+            return key
+    except Exception as e:  # noqa: BLE001
+        log.warning("cannot read deepseek key from bridge config: %s", e)
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if key:
+        return key
     cfg = Path.home() / ".codex" / "config.toml"
     if not cfg.exists():
         return ""
