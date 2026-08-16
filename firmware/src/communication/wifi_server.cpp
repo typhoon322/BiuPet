@@ -6,11 +6,13 @@
 
 #include "ble_manager.h"
 #include "config/config.h"
+#include "hardware/battery.h"
 #include "pet/pet_animation.h"
 #include "pet/pet_state.h"
 
 extern PetAnimation pet;
 extern BleManager ble;
+extern Battery battery;
 extern char usageText[];
 
 #if __has_include("config/secrets.h")
@@ -281,6 +283,10 @@ void WifiServer::handleStatus() {
     doc["usage"] = usageText;
     doc["uptime"] = millis() / 1000;
     doc["heap"] = ESP.getFreeHeap();
+    doc["bat_mv"] = battery.millivolts();
+    doc["bat_pct"] = battery.percent();
+    doc["bat_chg"] = battery.charging();
+    doc["bat_usb"] = battery.usbPresent();
     String out;
     serializeJson(doc, out);
     server_.send(200, "application/json", out);

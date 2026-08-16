@@ -84,4 +84,5 @@ public:
 #define ST77XX_GREEN   0x07E0
 #define ST77XX_RED     0xF800
 #define ST77XX_MAGENTA 0xF81F
+#define ST77XX_YELLOW  0xFFE0
 #endif
