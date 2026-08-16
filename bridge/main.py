@@ -164,14 +164,14 @@ async def main():
         while not stop_event.is_set():
             try:
                 agents = monitor.agents_snapshot() + dsh.agents_snapshot()
-                # same workspace can host several sessions: number duplicates
-                # (CodexPet, CodexPet2, ...) so the pet can tell them apart
+                # same workspace can host several sessions: number every entry
+                # from 1 with a dash separator (CodexPet-1, CodexPet-2, ...)
+                # so the pet can tell sessions apart and the names don't blur
                 seen: dict[str, int] = {}
                 text_parts = []
                 for name, st in agents:
                     seen[name] = seen.get(name, 0) + 1
-                    label = name if seen[name] == 1 else f"{name}{seen[name]}"
-                    text_parts.append(f"{label}:{AGENT_STATE_NUM.get(st, 0)}")
+                    text_parts.append(f"{name}-{seen[name]}:{AGENT_STATE_NUM.get(st, 0)}")
                 text = ";".join(text_parts)
                 if text != last_sent:
                     last_sent = text
