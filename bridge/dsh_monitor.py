@@ -41,9 +41,17 @@ EVENT_TO_STATE = {
 
 COMPLETED_HOLD_S = 15.0        # 已完成 -> 空闲 after this long
 WORKING_STALE_S = 90.0         # WORKING with no new event this long => finished
-SESSION_ACTIVE_S = 7 * 86400   # drop sessions with no activity for a week
 
 StateCallback = Callable[[dict], Coroutine[None, None, None]]
+
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d")
+
+
+def _active_on_today(ts: float) -> bool:
+    """Only sessions that had activity today (local time) are shown."""
+    return ts > 0 and time.strftime("%Y-%m-%d", time.localtime(ts)) == _today()
 
 
 def _decompress(path: Path) -> str:
@@ -229,27 +237,28 @@ class DshMonitor:
             })
 
     def agents_snapshot(self) -> list[tuple[str, str]]:
-        """Top-level sessions as [(label, state)], most recent first."""
-        cutoff = time.time() - SESSION_ACTIVE_S
+        """Top-level sessions with activity today as [(label, state)]; busy
+        (working / waiting) sessions first, then by most recent activity."""
         items = []
         for aid, a in self._agents.items():
             if a.get("depth", 1) != 0:
                 continue            # skip subagent sessions
-            if a.get("ts", 0) < cutoff:
-                continue            # stale / long-finished session
-            items.append((a["ts"], a.get("label", aid), a["state"]))
-        items.sort(reverse=True)
-        return [(label, st) for _, label, st in items]
+            if not _active_on_today(a.get("ts", 0)):
+                continue            # no activity today: don't show
+            busy = 0 if a["state"] in ("WORKING", "WAITING") else 1
+            items.append((busy, a["ts"], a.get("label", aid), a["state"]))
+        # busy (0) first, then most recent activity first
+        items.sort(key=lambda x: (x[0], -x[1]))
+        return [(label, st) for _, _, label, st in items]
 
     def current_task(self) -> str:
         """The task text the pet should show: the newest busy session's latest
         user message, falling back to the most recent session with a task."""
-        now = time.time()
         items = []
         for a in self._agents.values():
             if a.get("depth", 1) != 0:
                 continue
-            if a.get("ts", 0) < now - SESSION_ACTIVE_S:
+            if not _active_on_today(a.get("ts", 0)):
                 continue
             items.append((a["ts"], a))
         items.sort(reverse=True)

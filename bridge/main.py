@@ -164,6 +164,9 @@ async def main():
         while not stop_event.is_set():
             try:
                 agents = monitor.agents_snapshot() + dsh.agents_snapshot()
+                # busy sessions (working / waiting) always come first; the
+                # stable sort keeps each monitor's recency order within groups
+                agents.sort(key=lambda ns: 0 if ns[1] in ("WORKING", "WAITING") else 1)
                 # same workspace can host several sessions: number every entry
                 # from 1 with a dash separator (CodexPet-1, CodexPet-2, ...)
                 # so the pet can tell sessions apart and the names don't blur
