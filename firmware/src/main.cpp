@@ -84,21 +84,22 @@ static void drawWifiIcon(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
 
 // Battery: outline + fill (level by %), yellow bolt while charging.
 // pct < 0 means unknown (e.g. pet is on USB where the cell voltage is hidden).
+// Body is 8px tall to match the 6x8 font so the icon and % text align.
 static void drawBatteryIcon(LGFX& tft, int16_t x, int16_t y, int pct, bool charging) {
-    const int16_t bw = 12, bh = 7;
+    const int16_t bw = 12, bh = 8;
     uint16_t color = ST77XX_GREEN;
     if (pct >= 0) {
         color = (pct <= 20) ? ST77XX_RED : (pct <= 50 ? ST77XX_YELLOW : ST77XX_GREEN);
     }
     tft.drawRect(x, y, bw, bh, color);
-    tft.fillRect(x + bw, y + 2, 2, 3, color);   // + terminal nub
+    tft.fillRect(x + bw, y + 2, 2, 4, color);   // + terminal nub (vertically centered)
     if (pct >= 0) {
         const int fillW = (bw - 2) * pct / 100;
         if (fillW > 0) tft.fillRect(x + 1, y + 1, fillW, bh - 2, color);
     }
     if (charging) {
         tft.fillTriangle(x + 5, y + 0, x + 9, y + 4, x + 5, y + 4, ST77XX_YELLOW);
-        tft.fillTriangle(x + 5, y + 4, x + 1, y + 6, x + 5, y + 6, ST77XX_YELLOW);
+        tft.fillTriangle(x + 5, y + 4, x + 1, y + 7, x + 5, y + 7, ST77XX_YELLOW);
     }
 }
 
@@ -131,7 +132,7 @@ void drawStatusBar(PetState state) {
     drawBatteryIcon(tft, 236, 4, bpct, bchg);
     char btxt[8];
     if (bpct >= 0) snprintf(btxt, sizeof(btxt), "%d%%", bpct); else snprintf(btxt, sizeof(btxt), "--");
-    tft.setCursor(250, 4);
+    tft.setCursor(252, 4);   // 2px gap after the battery icon (incl. nub)
     tft.setTextColor(bchg ? ST77XX_YELLOW : (bpct >= 0 && bpct <= 20 ? ST77XX_RED : ST77XX_WHITE));
     tft.print(btxt);
 
@@ -143,11 +144,11 @@ void drawStatusBar(PetState state) {
     // ---- 底栏：余额(左) + 任务描述(右) ----
     tft.fillRect(0, LAYOUT_FOOT_Y, W, footH, ST77XX_BLACK);
 
-    // left: "DS ¥<balance>"
+    // left: "DS ¥<balance>" (¥ glyph top-aligned with the text)
     tft.setTextColor(ST77XX_WHITE);
     tft.setCursor(6, LAYOUT_FOOT_Y + 4);
     tft.print("DS");
-    drawYen(tft, 20, LAYOUT_FOOT_Y + 3, ST77XX_WHITE);
+    drawYen(tft, 20, LAYOUT_FOOT_Y + 4, ST77XX_WHITE);
     char bal[16];
     strncpy(bal, ble.balanceText(), sizeof(bal) - 1);
     bal[sizeof(bal) - 1] = '\0';
@@ -236,7 +237,7 @@ static void drawInfoScreen(uint32_t nowMs) {
     tft.setTextColor(ST77XX_WHITE);
     tft.setCursor(10, y);
     tft.print("DS ");
-    drawYen(tft, 36, y + 1, ST77XX_WHITE);
+    drawYen(tft, 36, y, ST77XX_WHITE);
     tft.setCursor(44, y);
     tft.print(ble.balanceText());
     y += 16;
