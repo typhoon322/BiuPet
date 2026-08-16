@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <time.h>
 
 #include "display/display_config.h"
 #include "config/config.h"
@@ -35,7 +36,29 @@ PetStatsStore stats;
 
 static PetState lastShownState = static_cast<PetState>(0xFF);
 static bool externalControl = false;
-static bool infoShown_ = false;   // Button 1 toggles info screen (no auto-return)
+
+// Pages shown on the display: main pet view / info panel / clock.
+enum class Page { MAIN, INFO, CLOCK };
+static Page page_ = Page::MAIN;
+
+// Clock-page state kept at file scope so switching pages can force a clean
+// full redraw (otherwise the previous page's pixels linger underneath).
+static char clockDateSig_[32] = "";
+static int clockLastHour_ = -1, clockLastMin_ = -1, clockLastSec_ = -1;
+
+// Draw one clock digit in a fixed-width cell: erase the whole cell first (so
+// a narrower digit never leaves residue) then print CENTERED in the cell, so a
+// narrow '1' sits evenly instead of hugging the left edge.
+static void drawClockDigit(char c, int cx, int cy, int cellW, int cellH, float size) {
+    tft.fillRect(cx, cy, cellW, cellH, ST77XX_BLACK);
+    tft.setFont(&fonts::Orbitron_Light_32);
+    tft.setTextSize(size);
+    tft.setTextColor(ST77XX_WHITE);
+    char s[2] = {c, '\0'};
+    const int gw = tft.textWidth(s);
+    tft.setCursor(cx + (cellW - gw) / 2, cy);
+    tft.print(c);
+}
 static bool backlightOn_ = true;
 
 static void applyState(PetState newState, const char* source) {
@@ -275,6 +298,78 @@ static void updateInfoScreen(uint32_t nowMs) {
     }
 }
 
+// Desk-clock page: NTP time, big 7-segment digits with blinking colon, Chinese
+// weekday + date composed in the center. The time is printed with a black
+// background each second so the old digits are erased in place (no flash);
+// ':' and ' ' share the same 12px width in Font7, so the blink never shifts.
+static void drawClockPage(uint32_t nowMs) {
+    static const char* const kWeekCn[] = {"周日", "周一", "周二", "周三", "周四", "周五", "周六"};
+
+    struct tm t;
+    if (!getLocalTime(&t, 10) || t.tm_year < 120) {
+        if (strcmp(clockDateSig_, "SYNC") != 0) {
+            strcpy(clockDateSig_, "SYNC");
+            clockLastHour_ = clockLastMin_ = clockLastSec_ = -1;
+            tft.fillScreen(ST77XX_BLACK);
+            tft.setFont(&fonts::Font0);
+            tft.setTextSize(1);
+            tft.setTextColor(ST77XX_YELLOW);
+            tft.setCursor(10, 60);
+            tft.print("NTP syncing...");
+            tft.setCursor(10, 76);
+            tft.print("(needs WiFi)");
+        }
+        return;
+    }
+    if (t.tm_sec != clockLastSec_) {
+        char dateSig[32];
+        snprintf(dateSig, sizeof(dateSig), "%04d-%02d-%02d|%s",
+                 t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, kWeekCn[t.tm_wday]);
+        if (strcmp(dateSig, clockDateSig_) != 0) {
+            const bool first = (clockDateSig_[0] == '\0');
+            const bool fromSync = (strcmp(clockDateSig_, "SYNC") == 0);
+            strcpy(clockDateSig_, dateSig);
+            if (first || fromSync) tft.fillScreen(ST77XX_BLACK);
+            // subtle frame
+            tft.drawRoundRect(6, 6, 308, 158, 10, 0x2146);
+            // date + Chinese weekday on one line at the bottom, white
+            char dateLine[32];
+            snprintf(dateLine, sizeof(dateLine), "%04d-%02d-%02d %s",
+                     t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, kWeekCn[t.tm_wday]);
+            drawChineseText(tft, 115, 142, dateLine, ST77XX_WHITE, 300);   // ~90px wide, centered
+        }
+        // seconds progress bar at the top (full width, 2px), fills over the minute
+        tft.fillRect(16, 10, 288, 2, ST77XX_BLACK);
+        const int fill = 288 * t.tm_sec / 59;
+        if (fill > 0) tft.fillRect(16, 10, fill, 2, ST77XX_CYAN);
+
+        // Fixed-width digit layout (each digit has its own cell, so the clock
+        // never jumps when a digit changes):  HH:MM big, no colon - a plain
+        // gap separates the hours and minutes.
+        tft.setFont(&fonts::Orbitron_Light_32);
+        tft.setTextSize(2.0f);
+        const int dw = tft.textWidth("8");          // widest digit = cell width
+        const int gap = 20;                          // HH / MM gap (no colon)
+        const int x0 = (320 - (dw * 4 + gap)) / 2;   // center the HH:MM block
+        const int yBig = 42, bigH = 72;
+        const int xH0 = x0, xH1 = x0 + dw;
+        const int xM0 = x0 + dw * 2 + gap, xM1 = x0 + dw * 3 + gap;
+
+        if (t.tm_hour != clockLastHour_) {
+            clockLastHour_ = t.tm_hour;
+            drawClockDigit('0' + t.tm_hour / 10, xH0, yBig, dw, bigH, 2.0f);
+            drawClockDigit('0' + t.tm_hour % 10, xH1, yBig, dw, bigH, 2.0f);
+        }
+        if (t.tm_min != clockLastMin_) {
+            clockLastMin_ = t.tm_min;
+            drawClockDigit('0' + t.tm_min / 10, xM0, yBig, dw, bigH, 2.0f);
+            drawClockDigit('0' + t.tm_min % 10, xM1, yBig, dw, bigH, 2.0f);
+        }
+        tft.setTextSize(1.0f);
+        tft.setFont(&fonts::Font0);
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 2000) { delay(10); }
@@ -302,6 +397,10 @@ void setup() {
     buttons.begin();
     wifi.begin();
     ble.begin();
+
+    // NTP time for the clock page (UTC+8, no DST). SNTP syncs once WiFi is up
+    // and keeps the internal clock ticking even if the link drops.
+    configTime(8 * 3600, 0, "pool.ntp.org", "ntp.aliyun.com");
     Serial.println("[PET] ready");
 }
 
@@ -318,14 +417,11 @@ void loop() {
     // --- Buttons: B1 short = info, B1 long = cycle state, B2 short = backlight ---
     switch (buttons.update(now)) {
         case PetButton::B1_SHORT:
-            // toggle info screen (stays until pressed again)
-            infoShown_ = !infoShown_;
-            if (infoShown_) {
-                lastInfoSig_[0] = '\0';   // force a fresh draw
-            } else {
-                lastShownState = static_cast<PetState>(0xFF);   // restore main view
-            }
-            Serial.printf("[BTN] info %s\n", infoShown_ ? "on" : "off");
+            // cycle pages: main -> info -> clock -> main (stays until pressed again)
+            page_ = static_cast<Page>((static_cast<int>(page_) + 1) % 3);
+            lastShownState = static_cast<PetState>(0xFF);   // force redraw
+            if (page_ == Page::INFO) lastInfoSig_[0] = '\0';
+            Serial.printf("[BTN] page %d\n", static_cast<int>(page_));
             break;
         case PetButton::B1_LONG:
             cyclePetState();
@@ -419,22 +515,30 @@ void loop() {
 
     pet.update(now);
 
-    // Info screen overrides the normal pet rendering while toggled on.
-    static bool infoWasActive = false;
-    const bool infoActive = infoShown_;
-    if (infoActive) {
+    // Render the active page (main pet / info / clock). On page switch the
+    // main view forces a full redraw so no stale pixels remain.
+    static Page lastPage = Page::MAIN;
+    if (page_ != lastPage) {
+        lastPage = page_;
+        lastShownState = static_cast<PetState>(0xFF);
+        if (page_ == Page::INFO) lastInfoSig_[0] = '\0';
+        if (page_ == Page::CLOCK) {
+            // force the full clock to redraw on entry
+            clockDateSig_[0] = '\0';
+            clockLastHour_ = clockLastMin_ = clockLastSec_ = -1;
+        }
+    }
+    if (page_ == Page::CLOCK) {
+        drawClockPage(now);
+    } else if (page_ == Page::INFO) {
         updateInfoScreen(now);
     } else {
-        if (infoWasActive) {
-            lastShownState = static_cast<PetState>(0xFF);   // force full redraw
-        }
         if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
             lastShownState = pet.state();
             drawStatusBar(pet.state());
         }
         pet.draw(tft, 0, LAYOUT_PET_Y);
     }
-    infoWasActive = infoActive;
     frames++;
 
     if (now - lastFpsLog >= 5000) {
