@@ -63,7 +63,11 @@ public:
             cfg.dummy_read_pixel = 8;
             cfg.dummy_read_bits = 1;
             cfg.readable = false;
-            cfg.invert = false;
+#if defined(DISPLAY_8080)
+            cfg.invert = true;    // T-Display-S3 ST7789 needs INVON (else white bg / inverted colors)
+#else
+            cfg.invert = false;   // SPI board uses INVOFF
+#endif
             cfg.rgb_order = false;
             cfg.bus_shared = true;
             _panel.config(cfg);

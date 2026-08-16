@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <pgmspace.h>
 
 #include "display/display_config.h"
 #include "config/config.h"
@@ -11,14 +10,14 @@
 #include "ui/chinese_text.h"
 
 // Screen layout (differs per board: 320x240 SPI vs 320x170 parallel 8080)
+// Top bar: state name + Lv + usage + BLE/WiFi icons.
+// Footer: task text (left) + whale + balance (right).
 #if defined(DISPLAY_8080)
 #define LAYOUT_TOP_H   18
-#define LAYOUT_TASK_Y  134
-#define LAYOUT_FOOT_Y  150
-#define LAYOUT_PET_Y   14
+#define LAYOUT_FOOT_Y  148
+#define LAYOUT_PET_Y   18
 #else
 #define LAYOUT_TOP_H   20
-#define LAYOUT_TASK_Y  198
 #define LAYOUT_FOOT_Y  216
 #define LAYOUT_PET_Y   66
 #endif
@@ -50,117 +49,78 @@ static void applyState(PetState newState, const char* source) {
 static char bottomText[64] = "";
 char usageText[32] = "usage: -";
 
-const uint16_t DS_BLUE = ((77 & 0xF8) << 8) | ((107 & 0xFC) << 3) | (254 >> 3);
-
-// DeepSeek official whale mark (1-bit bitmap, ported from EnvMonitor),
-// brand blue #4D6BFE. Drawn into a small RAM canvas and blitted with
-// writePixels only -- shape calls on the TFT deadlock this SPI stack.
-static constexpr int kDsWhaleBmpW = 52;
-static constexpr int kDsWhaleBmpH = 32;
-static constexpr int kDsWhaleBmpStride = 7;
-
-static const uint8_t kDsWhaleBmp[] PROGMEM = {
-    0x00, 0x01, 0x80, 0x60, 0x00, 0x00, 0x00, 0x00, 0x03, 0x80, 0xFE, 0x00, 0x00, 0x00, 0xC0, 0x07,
-    0xC0, 0x7F, 0xFF, 0xE0, 0x00, 0xE0, 0x1F, 0xC0, 0x3F, 0xFF, 0xF8, 0x00, 0xFF, 0x3F, 0xC0, 0x7F,
-    0xFF, 0xFE, 0x00, 0xFF, 0xFF, 0xC0, 0xFF, 0xFF, 0xFF, 0x00, 0x7F, 0xFF, 0x83, 0xFF, 0xFF, 0xFF,
-    0x80, 0x7F, 0xFF, 0x87, 0xFF, 0xFF, 0xFF, 0xC0, 0x3F, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0xC0, 0x1F,
-    0xFE, 0x1F, 0xFF, 0xFF, 0xFF, 0xE0, 0x07, 0xFC, 0x7F, 0xFF, 0xFF, 0xFF, 0xE0, 0x00, 0xFC, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xF0, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0xF0, 0x00, 0xFF, 0xFC, 0xFF, 0xFC,
-    0x00, 0xF0, 0x00, 0x7F, 0xF3, 0xFF, 0xF0, 0x00, 0xF0, 0x00, 0x7F, 0xE3, 0xFF, 0xC0, 0x01, 0xF0,
-    0x00, 0x7F, 0xE3, 0xFF, 0x80, 0x01, 0xF0, 0x00, 0x7F, 0xC7, 0xFF, 0x00, 0x01, 0xF0, 0x00, 0x3F,
-    0xFF, 0xFE, 0x00, 0x03, 0xF0, 0x00, 0x3F, 0xFF, 0xFC, 0x00, 0x03, 0xE0, 0x00, 0x1F, 0xFF, 0xF8,
-    0x00, 0x07, 0xE0, 0x00, 0x0F, 0xFF, 0xF0, 0x00, 0x07, 0xC0, 0x00, 0x0F, 0xFF, 0xE0, 0x00, 0x0F,
-    0xC0, 0x00, 0x07, 0xFF, 0xE0, 0xE0, 0x1F, 0x80, 0x00, 0x03, 0xFF, 0xC3, 0xE0, 0x7F, 0x80, 0x00,
-    0x01, 0xFF, 0x87, 0xE0, 0xFF, 0x00, 0x00, 0x0F, 0xFF, 0x1F, 0xC3, 0xFE, 0x00, 0x00, 0x1F, 0xFC,
-    0x7F, 0xFF, 0xF8, 0x00, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xF0, 0x00, 0x00, 0x07, 0xCF, 0xFF, 0xFF,
-    0xE0, 0x00, 0x00, 0x00, 0x03, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFC, 0x00, 0x00,
-};
-
-static LGFX_Sprite whaleCanvas_;
-
-static void precomputeWhale() {
-    whaleCanvas_.setColorDepth(16);
-    whaleCanvas_.createSprite(26, 16);
-    whaleCanvas_.fillScreen(0x0000);
-    for (int r = 0; r < 16; ++r) {
-        for (int c = 0; c < 26; ++c) {
-            bool set = false;
-            for (int dy = 0; dy < 2 && !set; ++dy) {
-                for (int dx = 0; dx < 2 && !set; ++dx) {
-                    const int srcC = c * 2 + dx;
-                    const int srcR = r * 2 + dy;
-                    const uint8_t byte =
-                        pgm_read_byte(&kDsWhaleBmp[srcR * kDsWhaleBmpStride + srcC / 8]);
-                    if (byte & (0x80 >> (srcC % 8))) {
-                        set = true;
-                    }
-                }
-            }
-            if (set) {
-                whaleCanvas_.drawPixel(c, r, DS_BLUE);
-            }
-        }
-    }
+// ¥ glyph: "Y" + horizontal bar (drawn manually; default font lacks ¥)
+static void drawYen(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
+    tft.drawLine(x + 1, y + 0, x + 3, y + 3, color);
+    tft.drawLine(x + 5, y + 0, x + 3, y + 3, color);
+    tft.drawLine(x + 3, y + 3, x + 3, y + 7, color);
+    tft.drawLine(x + 1, y + 4, x + 5, y + 4, color);
 }
 
-static void drawWhale(LGFX& tft, int16_t x, int16_t y) {
-    whaleCanvas_.pushSprite(&tft, x, y);
+// Bluetooth rune (ᛒ): vertical stem + two angular bows (no text, saves space)
+static void drawBleIcon(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
+    tft.drawLine(x + 3, y + 0, x + 3, y + 10, color);
+    tft.drawLine(x + 3, y + 0, x + 7, y + 3, color);
+    tft.drawLine(x + 7, y + 3, x + 3, y + 5, color);
+    tft.drawLine(x + 3, y + 5, x + 7, y + 7, color);
+    tft.drawLine(x + 7, y + 7, x + 3, y + 10, color);
+}
+
+// WiFi: dot + 3 arcs fanning upward
+static void drawWifiIcon(LGFX& tft, int16_t x, int16_t y, uint16_t color) {
+    const int16_t cx = x + 6, cy = y + 7;
+    tft.fillCircle(cx, cy, 1, color);
+    tft.fillArc(cx, cy, 2, 1, 225.0f, 315.0f, color);
+    tft.fillArc(cx, cy, 4, 3, 225.0f, 315.0f, color);
+    tft.fillArc(cx, cy, 6, 5, 225.0f, 315.0f, color);
 }
 
 void drawStatusBar(PetState state) {
     const int W = tft.width();
     const int footH = tft.height() - LAYOUT_FOOT_Y;
 
-    // 顶栏：状态名 + 两个彩色圆点
+    // ---- 顶栏：状态名 + Lv + 用量 + BLE/WiFi 图标 ----
     tft.fillRect(0, 0, W, LAYOUT_TOP_H, ST77XX_BLACK);
+    tft.setTextSize(1);
+
     tft.setCursor(6, 4);
     tft.setTextColor(ST77XX_CYAN);
-    tft.setTextSize(1);
     tft.print(petStateName(state));
 
-    const bool bleOk = ble.isOnline();
-    const bool wifiOk = wifi.isConnected();
-    // BLE 圆点 + 文字（圆点中心 y=8 与文字垂直对齐，组内 6px、组间 10px 间距）
-    tft.fillCircle(240, 8, 4, bleOk ? ST77XX_GREEN : ST77XX_RED);
-    tft.setCursor(250, 4);
-    tft.setTextColor(bleOk ? ST77XX_GREEN : ST77XX_RED);
-    tft.print("BLE");
-    // WiFi 圆点
-    tft.fillCircle(282, 8, 4, wifiOk ? ST77XX_GREEN : ST77XX_RED);
-    tft.setCursor(292, 4);
-    tft.setTextColor(wifiOk ? ST77XX_GREEN : ST77XX_RED);
-    tft.print("WiFi");
-
-    // 任务行（中文）
-    tft.fillRect(0, LAYOUT_TASK_Y, W, 16, ST77XX_BLACK);
-    if (bottomText[0] != '\0') {
-        drawChineseText(tft, 8, LAYOUT_TASK_Y, bottomText, ST77XX_CYAN, W - 16);
-    }
-
-    // 底栏：Lv / 用量 / 余额 单行
-    tft.fillRect(0, LAYOUT_FOOT_Y, W, footH, ST77XX_BLACK);
-    const int footTextY = LAYOUT_FOOT_Y + 4;
     const auto& st = stats.stats();
     char lv[16];
     snprintf(lv, sizeof(lv), "Lv.%u", st.level);
-    tft.setCursor(8, footTextY);
+    tft.setCursor(64, 4);
     tft.setTextColor(ST77XX_GREEN);
-    tft.setTextSize(1);
     tft.print(lv);
 
-    tft.setCursor(52, footTextY);
+    tft.setCursor(100, 4);
     tft.setTextColor(ST77XX_MAGENTA);
     tft.print(usageText);
 
-    char bal6[7];
-    strncpy(bal6, ble.balanceText(), 6);
-    bal6[6] = '\0';
-    char balFixed[7];
-    snprintf(balFixed, sizeof(balFixed), "%6s", bal6);
-    tft.setCursor(268, footTextY);
+    const bool bleOk = ble.isOnline();
+    const bool wifiOk = wifi.isConnected();
+    drawBleIcon(tft, 288, 4, bleOk ? ST77XX_GREEN : ST77XX_RED);
+    drawWifiIcon(tft, 302, 4, wifiOk ? ST77XX_GREEN : ST77XX_RED);
+
+    // ---- 底栏：余额(左) + 任务描述(右) ----
+    tft.fillRect(0, LAYOUT_FOOT_Y, W, footH, ST77XX_BLACK);
+
+    // left: "DS ¥<balance>"
     tft.setTextColor(ST77XX_WHITE);
-    tft.print(balFixed);
-    drawWhale(tft, 238, LAYOUT_FOOT_Y + 2);
+    tft.setCursor(6, LAYOUT_FOOT_Y + 4);
+    tft.print("DS");
+    drawYen(tft, 20, LAYOUT_FOOT_Y + 3, ST77XX_WHITE);
+    char bal[16];
+    strncpy(bal, ble.balanceText(), sizeof(bal) - 1);
+    bal[sizeof(bal) - 1] = '\0';
+    tft.setCursor(29, LAYOUT_FOOT_Y + 4);
+    tft.print(bal);
+
+    // right: task text in the remaining area
+    if (bottomText[0] != '\0') {
+        drawChineseText(tft, 90, LAYOUT_FOOT_Y + 3, bottomText, ST77XX_CYAN, 222);
+    }
 }
 
 void setup() {
@@ -183,7 +143,6 @@ void setup() {
     tft.setTextWrap(false);
     Serial.printf("[DISPLAY] init ok %dx%d rot=%d\n", tft.width(), tft.height(), tft.getRotation());
 
-    precomputeWhale();
     stats.begin();
     pet.begin();
     pet.setState(PetState::IDLE);
