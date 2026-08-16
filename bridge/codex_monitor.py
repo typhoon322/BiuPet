@@ -57,6 +57,15 @@ class CodexMonitor:
         self._tracked: dict[str, int] = {}  # file -> read offset
         self._completed_at = 0.0
         self._current_task = ""
+        self._agents: dict[str, dict] = {}  # agent_id -> {state, task, ts}
+
+    @staticmethod
+    def _agent_id_for(path: Path) -> str:
+        """Short agent id from a rollout-<uuid>.jsonl path."""
+        stem = path.stem
+        if stem.startswith("rollout-"):
+            return "codex-" + stem[len("rollout-"):][:6]
+        return "codex"
 
     def set_callback(self, cb: StateCallback):
         self._cb = cb
@@ -155,7 +164,7 @@ class CodexMonitor:
                 if task:
                     self._current_task = task
                 # schedule immediate state application
-                asyncio.get_event_loop().create_task(self._apply_state(state, source="jsonl"))
+                asyncio.get_event_loop().create_task(self._apply_state(state, source="jsonl", agent_id=self._agent_id_for(path)))
 
     def _recent_dirs(self) -> list[Path]:
         base = self._session_dir
@@ -230,7 +239,12 @@ class CodexMonitor:
         if self._state == "COMPLETED" and self._completed_at and now - self._completed_at >= COMPLETED_HOLD_MS / 1000:
             await self._apply_state("IDLE", source="timer")
 
-    async def _apply_state(self, state: str, source: str):
+    async def _apply_state(self, state: str, source: str, agent_id: str = "codex"):
+        # per-agent state (kept even if the merged state doesn't change)
+        agent = self._agents.setdefault(agent_id, {"state": state, "task": "", "ts": 0.0})
+        agent["state"] = state
+        agent["task"] = self._current_task
+        agent["ts"] = time.time()
         if state == self._state:
             return
         self._state = state
@@ -242,3 +256,11 @@ class CodexMonitor:
                 "timestamp": int(time.time()),
             })
         log.info("state -> %s (%s)", state, source)
+
+    def agents_snapshot(self) -> list[tuple[str, str]]:
+        """Active agents as [(label, state)], most recent first."""
+        now = time.time()
+        active = [(a["ts"], aid, a["state"]) for aid, a in self._agents.items()
+                  if now - a.get("ts", 0) <= 120]
+        active.sort(reverse=True)
+        return [(aid, st) for _, aid, st in active]

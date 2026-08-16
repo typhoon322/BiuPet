@@ -112,6 +112,18 @@ class BleBridge:
         except Exception as e:
             log.warning("balance send failed: %s", e)
 
+    async def send_agents(self, text: str):
+        """Send the per-agent status list over the command char
+        (e.g. "AGENTS codex-3f2:1;dsh-7a1:2" where 1=WORKING 2=WAITING)."""
+        if self._client is None or not self._client.is_connected or not self._command_char:
+            return
+        try:
+            msg = f"AGENTS {text}".encode("utf-8")[:63]
+            await self._client.write_gatt_char(self._command_char, msg, response=True)
+            log.info("agents sent: %s", text)
+        except Exception as e:
+            log.warning("agents send failed: %s", e)
+
     async def _send_packet(self, state: dict):
         if self._client is None or not self._client.is_connected:
             return

@@ -20,6 +20,10 @@ log = logging.getLogger("codex-pet-bridge")
 
 DS_BALANCE_URL = "https://api.deepseek.com/user/balance"
 
+# PetState numeric codes used in the "AGENTS" BLE message.
+AGENT_STATE_NUM = {"IDLE": 0, "WORKING": 1, "WAITING": 2, "COMPLETED": 3,
+                   "ERROR": 4, "SLEEP": 5, "OFFLINE": 6}
+
 
 def load_deepseek_key() -> str:
     """Read the DeepSeek key, in order: bridge config.local.yaml / config.yaml
@@ -155,6 +159,22 @@ async def main():
             except asyncio.TimeoutError:
                 pass
 
+    async def agents_loop():
+        last_sent = ""
+        while not stop_event.is_set():
+            try:
+                agents = monitor.agents_snapshot() + dsh.agents_snapshot()
+                text = ";".join(f"{name}:{AGENT_STATE_NUM.get(st, 0)}" for name, st in agents)
+                if text != last_sent:
+                    last_sent = text
+                    await bridge.send_agents(text)
+            except Exception as e:
+                log.warning("agents loop error: %s", e)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                pass
+
     hub = StateHub(bridge.send_state)
     dsh = DshMonitor(dsh_dir)
     monitor.set_callback(hub.report)
@@ -175,6 +195,7 @@ async def main():
         usage_loop(),
         dsh.run(stop_event),
         hub.idle_loop(stop_event),
+        agents_loop(),
         return_exceptions=True,
     )
 

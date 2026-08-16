@@ -174,6 +174,33 @@ void BleManager::onCommandWrite(const uint8_t* data, size_t len) {
         Serial.printf("[BLE] balance: %s @ %s\n", balanceText_, balanceTime_);
         return;
     }
+    if (len >= 7 && memcmp(data, "AGENTS ", 7) == 0) {
+        // format: "AGENTS name:state;name:state;..."  (state = PetState number)
+        agentCount_ = 0;
+        const char* p = reinterpret_cast<const char*>(data) + 7;
+        const char* end = reinterpret_cast<const char*>(data) + len;
+        while (p < end && agentCount_ < 8) {
+            // accept both "a:1;b:2" and a trailing "a:1" without ';'
+            const char* semi = strchr(p, ';');
+            const char* segEnd = semi ? semi : end;
+            const char* colon = (const char*)memchr(p, ':', segEnd - p);
+            if (colon) {
+                const size_t nlen = (size_t)(colon - p);
+                AgentInfo& a = agents_[agentCount_];
+                const size_t clen = (nlen < sizeof(a.name) - 1) ? nlen : sizeof(a.name) - 1;
+                memcpy(a.name, p, clen);
+                a.name[clen] = '\0';
+                const int st = atoi(colon + 1);
+                a.state = (st >= 0 && st <= 6) ? (uint8_t)st : 0;
+                agentCount_++;
+            }
+            if (!semi) break;
+            p = semi + 1;
+        }
+        agentsChanged_ = true;
+        Serial.printf("[BLE] agents: %u\n", agentCount_);
+        return;
+    }
     if (len < 7 || memcmp(data, "USAGE ", 6) != 0) {
         return;
     }

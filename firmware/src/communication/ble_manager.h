@@ -31,6 +31,16 @@ public:
     bool balanceChanged() const { return balanceChanged_; }
     void clearBalanceChanged() { balanceChanged_ = false; }
 
+    // per-agent status list ("AGENTS codex-3f2:1;dsh-7a1:2;...")
+    struct AgentInfo {
+        char name[13];
+        uint8_t state;   // PetState numeric
+    };
+    uint8_t agentCount() const { return agentCount_; }
+    const AgentInfo* agents() const { return agents_; }
+    bool agentsChanged() const { return agentsChanged_; }
+    void clearAgentsChanged() { agentsChanged_ = false; }
+
     static BleManager* instance() { return s_instance; }
     void onConnected();
     void onDisconnected();
@@ -51,5 +61,8 @@ private:
     char balanceText_[16] = "--";
     char balanceTime_[16] = "";   // wall-clock HH:MM:SS of the last refresh
     bool balanceChanged_ = false;
+    AgentInfo agents_[8] = {};
+    uint8_t agentCount_ = 0;
+    bool agentsChanged_ = false;
     uint8_t lastLoggedState_ = 0xFF;
 };

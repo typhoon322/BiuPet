@@ -56,6 +56,7 @@ class DshMonitor:
         self._completed_at = 0.0
         self._last_activity = time.monotonic()
         self._tracked: dict[str, tuple[int, int]] = {}  # path -> (size, lines_processed)
+        self._agents: dict[str, dict] = {}  # agent_id -> {state, task, ts}
 
     def set_callback(self, cb: StateCallback):
         self._cb = cb
@@ -92,11 +93,12 @@ class DshMonitor:
             return
         text = _decompress(path)
         all_lines = text.splitlines()
+        agent_id = self._agent_id_for(path)
         for line in all_lines[lines:]:
-            self._process_line(line)
+            self._process_line(line, agent_id)
         self._tracked[key] = (size, len(all_lines))
 
-    def _process_line(self, line: str):
+    def _process_line(self, line: str, agent_id: str = "dsh"):
         line = line.strip()
         if not line:
             return
@@ -109,6 +111,11 @@ class DshMonitor:
         if state is None:
             return
         self._last_activity = time.monotonic()
+        # keep the agent's activity timestamp fresh on *every* event so long
+        # WORKING turns don't expire from the snapshot (ts only used to gate
+        # the state callback below)
+        agent = self._agents.setdefault(agent_id, {"state": state, "task": "", "ts": 0.0})
+        agent["ts"] = time.time()
         task = self._extract_task(rec) or self._task
         if task:
             self._task = task
@@ -116,7 +123,7 @@ class DshMonitor:
         if state == "COMPLETED":
             self._completed_at = time.monotonic()
         if state != self._state:
-            asyncio.get_event_loop().create_task(self._apply(state, task))
+            asyncio.get_event_loop().create_task(self._apply(state, task, agent_id))
 
     @staticmethod
     def _extract_task(rec: dict) -> str:
@@ -137,7 +144,21 @@ class DshMonitor:
         first = (text or "").strip().splitlines()
         return first[0][:48] if first else ""
 
-    async def _apply(self, state: str, task: str):
+    @staticmethod
+    def _agent_id_for(path: Path) -> str:
+        """Short agent id from a session path (<slug>/session-<uuid>/)."""
+        aid = path.parent.name or ""
+        if aid.startswith("session-"):
+            aid = aid[len("session-"):]
+        if not aid:
+            aid = "dsh"
+        return ("dsh-" + aid)[:12]
+
+    async def _apply(self, state: str, task: str, agent_id: str = "dsh"):
+        agent = self._agents.setdefault(agent_id, {"state": state, "task": "", "ts": 0.0})
+        agent["state"] = state
+        agent["task"] = self._task
+        agent["ts"] = time.time()
         if state == self._state:
             return
         self._state = state
@@ -148,6 +169,14 @@ class DshMonitor:
                 "task": self._task,
                 "timestamp": int(time.time()),
             })
+
+    def agents_snapshot(self) -> list[tuple[str, str]]:
+        """Active agents as [(label, state)], most recent first."""
+        now = time.time()
+        active = [(a["ts"], aid, a["state"]) for aid, a in self._agents.items()
+                  if now - a.get("ts", 0) <= 120]
+        active.sort(reverse=True)
+        return [(aid, st) for _, aid, st in active]
 
     async def _maybe_hold(self):
         if self._state == "COMPLETED" and time.monotonic() - self._completed_at >= COMPLETED_HOLD_S:

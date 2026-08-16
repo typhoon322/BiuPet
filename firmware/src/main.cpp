@@ -39,8 +39,8 @@ PetStatsStore stats;
 static PetState lastShownState = static_cast<PetState>(0xFF);
 static bool externalControl = false;
 
-// Pages shown on the display: main pet view / info panel / clock.
-enum class Page { MAIN, INFO, CLOCK };
+// Pages shown on the display: main pet view / info panel / clock / agents.
+enum class Page { MAIN, INFO, CLOCK, AGENTS };
 static Page page_ = Page::MAIN;
 
 // Clock-page state kept at file scope so switching pages can force a clean
@@ -228,6 +228,7 @@ static void cyclePetState() {
 // Drawn once and only re-rendered when a displayed value changes (a per-frame
 // fillScreen causes visible flicker).
 static char lastInfoSig_[96] = "";
+static char lastAgentsSig_[96] = "";
 
 static void drawInfoScreen(uint32_t nowMs) {
     tft.fillScreen(ST77XX_BLACK);
@@ -323,6 +324,51 @@ static void updateInfoScreen(uint32_t nowMs) {
         strncpy(lastInfoSig_, sig, sizeof(lastInfoSig_) - 1);
         lastInfoSig_[sizeof(lastInfoSig_) - 1] = '\0';
         drawInfoScreen(nowMs);
+    }
+}
+
+// Agents page: list every active agent (from the bridge "AGENTS" message) with
+// its state. Redraws only when the list changes.
+static void drawAgentsPage() {
+    tft.fillScreen(ST77XX_BLACK);
+    tft.setFont(&fonts::Font0);
+    tft.setTextSize(1);
+    tft.setTextColor(ST77XX_CYAN);
+    tft.setCursor(10, 8);
+    tft.print("== Agents ==");
+    const uint8_t n = ble.agentCount();
+    if (n == 0) {
+        tft.setTextColor(ST77XX_WHITE);
+        tft.setCursor(10, 44);
+        tft.print("no active agents");
+        return;
+    }
+    static const char* const kStateCn[] = {"空闲", "工作中", "等待中", "已完成", "出错", "睡眠", "离线"};
+    static const uint16_t kStateColor[] = {ST77XX_WHITE, ST77XX_GREEN, ST77XX_YELLOW,
+                                           ST77XX_CYAN, ST77XX_RED, 0x4208, 0x4208};
+    for (uint8_t i = 0; i < n && i < 8; ++i) {
+        const BleManager::AgentInfo& a = ble.agents()[i];
+        const uint8_t st = (a.state <= 6) ? a.state : 0;
+        tft.setTextColor(ST77XX_WHITE);
+        tft.setCursor(20, 34 + i * 18);
+        tft.print(a.name);
+        drawChineseText(tft, 170, 32 + i * 18, kStateCn[st], kStateColor[st], 90);
+    }
+}
+
+static void updateAgentsPage() {
+    char sig[96] = "";
+    const uint8_t n = ble.agentCount();
+    snprintf(sig, sizeof(sig), "%u", n);
+    for (uint8_t i = 0; i < n && i < 8; ++i) {
+        char part[24];
+        snprintf(part, sizeof(part), "|%s:%u", ble.agents()[i].name, ble.agents()[i].state);
+        strncat(sig, part, sizeof(sig) - strlen(sig) - 1);
+    }
+    if (strcmp(sig, lastAgentsSig_) != 0) {
+        strncpy(lastAgentsSig_, sig, sizeof(lastAgentsSig_) - 1);
+        lastAgentsSig_[sizeof(lastAgentsSig_) - 1] = '\0';
+        drawAgentsPage();
     }
 }
 
@@ -445,8 +491,8 @@ void loop() {
     // --- Buttons: B1 short = info, B1 long = cycle state, B2 short = backlight ---
     switch (buttons.update(now)) {
         case PetButton::B1_SHORT:
-            // cycle pages: main -> info -> clock -> main (stays until pressed again)
-            page_ = static_cast<Page>((static_cast<int>(page_) + 1) % 3);
+            // cycle pages: main -> info -> clock -> agents -> main
+            page_ = static_cast<Page>((static_cast<int>(page_) + 1) % 4);
             lastShownState = static_cast<PetState>(0xFF);   // force redraw
             if (page_ == Page::INFO) lastInfoSig_[0] = '\0';
             Serial.printf("[BTN] page %d\n", static_cast<int>(page_));
@@ -596,6 +642,7 @@ void loop() {
         lastPage = page_;
         lastShownState = static_cast<PetState>(0xFF);
         if (page_ == Page::INFO) lastInfoSig_[0] = '\0';
+        if (page_ == Page::AGENTS) lastAgentsSig_[0] = '\0';
         if (page_ == Page::CLOCK) {
             // force the full clock to redraw on entry
             clockDateSig_[0] = '\0';
@@ -620,6 +667,8 @@ void loop() {
                 clockLastHour_ = clockLastMin_ = clockLastSec_ = -1;
             } else if (page_ == Page::INFO) {
                 lastInfoSig_[0] = '\0';
+            } else if (page_ == Page::AGENTS) {
+                lastAgentsSig_[0] = '\0';
             } else {
                 lastShownState = static_cast<PetState>(0xFF);
             }
@@ -628,6 +677,8 @@ void loop() {
             drawClockPage(now);
         } else if (page_ == Page::INFO) {
             updateInfoScreen(now);
+        } else if (page_ == Page::AGENTS) {
+            updateAgentsPage();
         } else {
             if (lastShownState != pet.state() || lastShownState == static_cast<PetState>(0xFF)) {
                 lastShownState = pet.state();
