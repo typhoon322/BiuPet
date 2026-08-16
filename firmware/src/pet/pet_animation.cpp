@@ -8,14 +8,14 @@ namespace {
 const float TAU = 6.2831853f;
 
 // Walkable region of the 320px canvas. On the T-Display-S3 the main page
-// reserves a left panel for the agent list, so the canvas is pushed 120px to
-// the right and the cat only paces the visible 200px; the 320x240 SPI boards
+// reserves a 100px left panel for the session list, so the canvas is pushed
+// 100px right and the cat paces the visible 220px; the 320x240 SPI boards
 // keep the full width.
 #if defined(DISPLAY_8080)
 constexpr float WALK_X_MIN   = 8.0f;
-constexpr float WALK_X_MAX   = 192.0f;
+constexpr float WALK_X_MAX   = 212.0f;
 constexpr float BTFLY_X_LO   = 20.0f;
-constexpr float BTFLY_X_SPAN = 140.0f;
+constexpr float BTFLY_X_SPAN = 160.0f;
 #else
 constexpr float WALK_X_MIN   = 40.0f;
 constexpr float WALK_X_MAX   = 280.0f;

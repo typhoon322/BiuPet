@@ -28,10 +28,10 @@
 #define LAYOUT_PET_Y   66
 #endif
 
-// Left agent-status panel on the main page (T-Display-S3 only): the pet
+// Left session-status panel on the main page (T-Display-S3 only): the pet
 // animation area shifts right by this much. 0 on the full-width SPI boards.
 #if defined(DISPLAY_8080)
-#define AGENT_PANEL_W  120
+#define AGENT_PANEL_W  100
 #else
 #define AGENT_PANEL_W  0
 #endif
@@ -339,14 +339,14 @@ static void updateInfoScreen(uint32_t nowMs) {
     }
 }
 
-// Agent status colors, following the DSH web UI: idle=green, working=blue,
-// waiting (needs approval)=orange, completed=cyan, error=red, sleep/offline=gray.
+// Session status colors, following the DSH web UI: idle & completed = green,
+// working = blue, waiting (needs approval) = orange, error = red, offline = gray.
 static const char* const kAgentStateCn[] = {"空闲", "工作中", "等待中", "已完成", "出错", "睡眠", "离线"};
 static const uint16_t kAgentStateColor[] = {
     ST77XX_GREEN,    // IDLE
     0x54BF,          // WORKING (bright blue)
     0xFD20,          // WAITING (orange, needs approval)
-    ST77XX_CYAN,     // COMPLETED
+    ST77XX_GREEN,    // COMPLETED (same green as idle)
     ST77XX_RED,      // ERROR
     0x7BEF,          // SLEEP (gray)
     0x4208,          // OFFLINE (dark gray)
@@ -378,15 +378,15 @@ static void drawAgentsPage() {
     }
 }
 
-// Main-page agent list: compact left panel, agent names colored by status
-// (green idle / blue working / orange needs-approval / ...). Redrawn only when
-// the list changes or the panel region was covered by an overlay.
+// Main-page session list: compact left panel, session (workspace) names
+// colored by status (green idle/completed, blue working, orange needs
+// approval, ...). Redrawn only when the list changes or the panel region was
+// covered by an overlay.
 static void drawAgentPanel() {
 #if defined(DISPLAY_8080)
     const int y0 = LAYOUT_TOP_H;
     const int h = LAYOUT_FOOT_Y - LAYOUT_TOP_H;
     tft.fillRect(0, y0, AGENT_PANEL_W, h, ST77XX_BLACK);
-    tft.drawFastVLine(AGENT_PANEL_W - 1, y0, h, 0x2108);   // subtle divider
     tft.setFont(&fonts::Font0);
     tft.setTextSize(1);
     const uint8_t n = ble.agentCount();
