@@ -181,6 +181,7 @@ void setup() {
     tft.setRotation(1);
     tft.fillScreen(ST77XX_BLACK);
     tft.setTextWrap(false);
+    Serial.printf("[DISPLAY] init ok %dx%d rot=%d\n", tft.width(), tft.height(), tft.getRotation());
 
     precomputeWhale();
     stats.begin();
