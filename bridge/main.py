@@ -160,7 +160,6 @@ async def main():
                 pass
 
     async def agents_loop():
-        last_sent = ""
         while not stop_event.is_set():
             try:
                 agents = monitor.agents_snapshot() + dsh.agents_snapshot()
@@ -176,9 +175,10 @@ async def main():
                     seen[name] = seen.get(name, 0) + 1
                     text_parts.append(f"{name}-{seen[name]}:{AGENT_STATE_NUM.get(st, 0)}")
                 text = ";".join(text_parts)
-                if text != last_sent:
-                    last_sent = text
-                    await bridge.send_agents(text)
+                # dedup lives in the BLE layer per connection, so calling every
+                # tick is cheap AND a reconnect always re-pushes the current
+                # list/task even if the text didn't change
+                await bridge.send_agents(text)
                 # footer task = the busy session's latest user message
                 task = dsh.current_task() or monitor.current_task() or ""
                 await bridge.send_task(task)

@@ -122,7 +122,7 @@ class DshMonitor:
             self._meta[key] = meta
             for line in all_lines:
                 self._process_line(line, agent_id, meta)
-            self._agents.setdefault(agent_id, {}).setdefault("mtime", mtime)
+            self._touch_mtime(agent_id, mtime)
             self._tracked[key] = (size, len(all_lines), mtime)
             return
         old_size, lines, old_mtime = self._tracked[key]
@@ -137,8 +137,16 @@ class DshMonitor:
         start = 0 if len(all_lines) < lines else lines
         for line in all_lines[start:]:
             self._process_line(line, agent_id, meta)
-        self._agents.setdefault(agent_id, {})["mtime"] = mtime
+        self._touch_mtime(agent_id, mtime)
         self._tracked[key] = (size, len(all_lines), mtime)
+
+    def _touch_mtime(self, agent_id: str, mtime: float):
+        """Record the file's mtime, creating the agent entry with the full
+        structure when the session has no mapped events yet (otherwise the
+        bare dict would blow up later with KeyError 'label')."""
+        ag = self._agents.setdefault(
+            agent_id, {"state": "IDLE", "task": "", "ts": 0.0, "label": "dsh", "depth": 1})
+        ag["mtime"] = mtime
 
     @staticmethod
     def _scan_meta(lines: list[str], path: Path) -> dict:
@@ -181,8 +189,8 @@ class DshMonitor:
             "state": state, "task": "", "ts": 0.0,
             "label": meta.get("label", "dsh"), "depth": meta.get("depth", 1),
         })
-        agent["label"] = meta.get("label", agent["label"])
-        agent["depth"] = meta.get("depth", agent["depth"])
+        agent["label"] = meta.get("label") or agent.get("label", "dsh")
+        agent["depth"] = meta.get("depth", agent.get("depth", 1))
         t = rec.get("time")
         agent["ts"] = (t / 1000.0) if isinstance(t, (int, float)) and t > 0 else time.time()
         # a session's task = its latest user message (assistant replies are

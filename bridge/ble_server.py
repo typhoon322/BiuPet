@@ -42,6 +42,7 @@ class BleBridge:
         self._command_char: str = cfg["device"].get("command_char_uuid", "")
         self._last_task = ""
         self._last_usage = -1
+        self._last_agents = None
         self._pending: asyncio.Queue[dict] = asyncio.Queue()
         self._last_state = "IDLE"
 
@@ -66,9 +67,10 @@ class BleBridge:
         async with BleakClient(device) as client:
             self._client = client
             log.info("Connected")
-            # fresh link: re-send usage/task on next update
+            # fresh link: re-send usage/task/agents on next update
             self._last_usage = -1
             self._last_task = ""
+            self._last_agents = None
             while client.is_connected and not stop_event.is_set():
                 try:
                     msg = await asyncio.wait_for(self._pending.get(), timeout=1.0)
@@ -129,9 +131,14 @@ class BleBridge:
         """Send the per-agent status list over the command char
         (e.g. "AGENTS codex-3f2:1;dsh-CodexPet-0b47:1" where 1=WORKING).
         Longer than the 63-byte command cap: NimBLE/CoreBluetooth negotiate a
-        185-byte ATT MTU, so an 8-agent list (~150 B) fits in one write."""
+        185-byte ATT MTU, so an 8-agent list (~150 B) fits in one write.
+        Dedups per connection (reset on reconnect so a fresh link always gets
+        the current list even if the text didn't change)."""
         if self._client is None or not self._client.is_connected or not self._command_char:
             return
+        if text == self._last_agents:
+            return
+        self._last_agents = text
         try:
             msg = _trim_utf8(f"AGENTS {text}".encode("utf-8")[:180])
             await self._client.write_gatt_char(self._command_char, msg, response=True)
