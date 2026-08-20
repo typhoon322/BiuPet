@@ -79,8 +79,9 @@ class StateHub:
 
     COMPLETED_HOLD_S = 10.0  # keep the celebration visible for at least this long
 
-    def __init__(self, send_fn):
+    def __init__(self, send_fn, on_completed=None):
         self._send = send_fn
+        self._on_completed = on_completed   # called when a session finishes
         self._state = "IDLE"
         self._last_activity = time.monotonic()
         self._completed_at = 0.0
@@ -94,6 +95,8 @@ class StateHub:
             if self._state != "COMPLETED":
                 self._state = "COMPLETED"
                 await self._send(state)
+                if self._on_completed:
+                    self._on_completed()   # refresh the balance right away
             return
         # during the COMPLETED celebration, buffer the incoming state so the
         # animation has time to show before WORKING/IDLE takes over
@@ -136,6 +139,7 @@ async def main():
     dsh_storage = os.path.expanduser(cfg.get("dsh", {}).get("storage_file", "~/.dsh/storages/session_projcache.json"))
     usage = UsageTracker(cfg["monitor"]["session_dir"], dsh_storage)
     last_balance_at = 0.0
+    balance_now = asyncio.Event()   # set when a task completes
 
     async def usage_loop():
         nonlocal last_balance_at
@@ -145,17 +149,18 @@ async def main():
                 if tokens > 0:
                     # usage must not touch the current pet state
                     await bridge.send_usage(tokens)
-                # DeepSeek balance, refreshed every 30s. The HTTP fetch is
-                # blocking, so run it in a worker thread to avoid stalling the
-                # event loop (which would freeze BLE heartbeats and hooks).
-                if time.monotonic() - last_balance_at >= 30:
+                # DeepSeek balance: every 30s, or immediately when a task
+                # completes (the HTTP fetch is blocking, so run it in a worker
+                # thread to avoid stalling the BLE event loop).
+                if balance_now.is_set() or time.monotonic() - last_balance_at >= 30:
+                    balance_now.clear()
                     last_balance_at = time.monotonic()
                     balance = await asyncio.to_thread(fetch_deepseek_balance)
                     await bridge.send_balance(balance)
             except Exception as e:
                 log.warning("usage loop error: %s", e)
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=30)
+                await asyncio.wait_for(balance_now.wait(), timeout=30)
             except asyncio.TimeoutError:
                 pass
 
@@ -189,7 +194,7 @@ async def main():
             except asyncio.TimeoutError:
                 pass
 
-    hub = StateHub(bridge.send_state)
+    hub = StateHub(bridge.send_state, on_completed=balance_now.set)
     dsh = DshMonitor(dsh_dir)
     monitor.set_callback(hub.report)
     dsh.set_callback(hub.report)
