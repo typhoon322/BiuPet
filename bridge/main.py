@@ -8,6 +8,7 @@ import signal
 import sys
 import time
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from config import load_config
@@ -60,7 +61,8 @@ def fetch_deepseek_balance() -> str:
         key = load_deepseek_key()
         if not key:
             return "--"
-        resp = requests.get(DS_BALANCE_URL, headers={"Authorization": f"Bearer {key}"}, timeout=10)
+        resp = requests.get(DS_BALANCE_URL, headers={"Authorization": f"Bearer {key}"},
+                            timeout=(5, 10))
         resp.raise_for_status()
         data = resp.json()
         if not data.get("is_available", False):
@@ -140,9 +142,14 @@ async def main():
     usage = UsageTracker(cfg["monitor"]["session_dir"], dsh_storage)
     last_balance_at = 0.0
     balance_now = asyncio.Event()   # set when a task completes
+    # A stalled DNS/connect would otherwise block asyncio.to_thread forever and
+    # pile up threads; a tiny pool + wait_for keeps usage_loop alive no matter
+    # what the network does.
+    bal_pool = ThreadPoolExecutor(max_workers=1)
 
     async def usage_loop():
         nonlocal last_balance_at
+        loop = asyncio.get_event_loop()
         while not stop_event.is_set():
             try:
                 tokens = usage.today_tokens()
@@ -150,13 +157,19 @@ async def main():
                     # usage must not touch the current pet state
                     await bridge.send_usage(tokens)
                 # DeepSeek balance: every 30s, or immediately when a task
-                # completes (the HTTP fetch is blocking, so run it in a worker
-                # thread to avoid stalling the BLE event loop).
+                # completes (the HTTP fetch is blocking, so it runs in the
+                # bounded worker pool; the 20s wait_for guards against a hung
+                # DNS lookup keeping us stuck).
                 if balance_now.is_set() or time.monotonic() - last_balance_at >= 30:
                     balance_now.clear()
                     last_balance_at = time.monotonic()
-                    balance = await asyncio.to_thread(fetch_deepseek_balance)
-                    await bridge.send_balance(balance)
+                    try:
+                        balance = await asyncio.wait_for(
+                            loop.run_in_executor(bal_pool, fetch_deepseek_balance),
+                            timeout=20)
+                        await bridge.send_balance(balance)
+                    except asyncio.TimeoutError:
+                        log.warning("balance fetch timed out")
             except Exception as e:
                 log.warning("usage loop error: %s", e)
             try:
