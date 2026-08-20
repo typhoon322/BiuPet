@@ -3,6 +3,7 @@
 #include <time.h>
 #include <esp_sleep.h>
 #include <driver/gpio.h>
+#include <Preferences.h>
 
 #include "display/display_config.h"
 #include "config/config.h"
@@ -234,6 +235,76 @@ static void cyclePetState() {
     externalControl = true;
     applyState(next, "button");
     Serial.printf("[BTN] state -> %s\n", petStateName(next));
+}
+
+// ===== Power management (T-Display-S3) =====
+// GPIO15 (PWR_EN) is on the TP4065 charge path: it must stay HIGH to charge.
+// Strategy:
+//  - USB plugged in  -> IO15 HIGH: LCD powered, charging path open.
+//  - USB unplugged   -> drop IO15 + light sleep (auto after a debounce).
+//  - Battery mode    -> light sleep after AUTO_SLEEP_MS without a button press.
+//  - Light sleep with USB still charging keeps IO15 HIGH so the battery keeps
+//    charging while asleep (backlight off, LCD panel idle draws ~nothing).
+static constexpr uint32_t AUTO_SLEEP_MS = 60000;    // idle timeout on battery
+static constexpr uint32_t USB_GONE_DEBOUNCE_MS = 2500;
+static uint32_t lastInteractionMs_ = 0;
+// Start "unknown": the battery ADC needs ~8s of samples before usbPresent()
+// is valid, so a fresh boot must never look like an unplug event.
+static bool usbWasPresent_ = false;
+static uint32_t usbGoneSinceMs_ = 0;
+
+static bool autoSleepEnabled() {
+    Preferences pref;
+    pref.begin("codepet", true);
+    const bool v = pref.getBool("auto_sleep", true);
+    pref.end();
+    return v;
+}
+
+static void enterLightSleep(bool keepCharging) {
+    tft.fillScreen(ST77XX_BLACK);
+    drawChineseText(tft, 10, 56, "正在关机...", ST77XX_YELLOW, 200);
+    tft.setFont(&fonts::Font0);
+    tft.setTextSize(1);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(10, 78);
+    tft.print("release to power off");
+    tft.setCursor(10, 92);
+    tft.print("press a button to wake");
+    const uint32_t t0 = millis();
+    while (digitalRead(0) == LOW && millis() - t0 < 10000) delay(20);
+    ledcWrite(0, 0);   // backlight off
+#if defined(PIN_LCD_POWER_ON)
+    if (!keepCharging) {
+        // cut the LCD rail + green LED for maximum savings
+        digitalWrite(PIN_LCD_POWER_ON, LOW);
+    }
+    // keepCharging (USB plugged + battery not full): leave IO15 HIGH so the
+    // TP4065 charge path stays open while we sleep.
+#endif
+    gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
+    gpio_wakeup_enable(GPIO_NUM_14, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    Serial.printf("[PET] light sleep (keepCharging=%d)\n", (int)keepCharging);
+    esp_light_sleep_start();   // returns when a button is pressed
+    Serial.println("[PET] woken");
+#if defined(PIN_LCD_POWER_ON)
+    digitalWrite(PIN_LCD_POWER_ON, HIGH);   // re-power the LCD rail
+    delay(100);
+    tft.init();               // ST7789 re-init (harmless if it stayed powered)
+    tft.setRotation(1);
+#endif
+    ledcWrite(0, kBrightnessLevels[backlightLevel_ - 1]);
+    backlightOn_ = true;
+    lastShownState = static_cast<PetState>(0xFF);
+    buttons.reinit();   // ignore the wake button's press
+    // WiFi radio was suspended during light sleep: bring the AP back and
+    // restart the STA rotation, or it stays dark.
+    WiFi.mode(WIFI_OFF);
+    delay(100);
+    wifi.begin();
+    usbWasPresent_ = battery.usbPresent();   // re-sync after sleep
+    usbGoneSinceMs_ = 0;
 }
 
 // Button 1 short press: full-screen status panel for a few seconds.
@@ -546,8 +617,29 @@ void loop() {
     wifi.update();
     battery.update(now);
 
+    // --- Power management: USB unplug -> sleep, battery idle timeout -> sleep.
+    const bool usbNow = battery.usbPresent();
+    if (usbWasPresent_ && !usbNow) {
+        usbGoneSinceMs_ = now;               // start the unplug debounce
+    }
+    usbWasPresent_ = usbNow;
+    if (!usbNow && usbGoneSinceMs_ != 0 && now - usbGoneSinceMs_ >= USB_GONE_DEBOUNCE_MS) {
+        usbGoneSinceMs_ = 0;
+        if (autoSleepEnabled()) {
+            Serial.println("[PET] USB unplugged -> sleep");
+            enterLightSleep(false);
+        }
+    }
+    if (!usbNow && autoSleepEnabled() && now - lastInteractionMs_ > AUTO_SLEEP_MS) {
+        lastInteractionMs_ = now;
+        Serial.println("[PET] battery idle -> sleep");
+        enterLightSleep(false);
+    }
+
     // --- Buttons: B1 short = info, B1 long = cycle state, B2 short = backlight ---
-    switch (buttons.update(now)) {
+    const PetButton btn = buttons.update(now);
+    if (btn != PetButton::NONE) lastInteractionMs_ = now;
+    switch (btn) {
         case PetButton::B1_SHORT:
             // cycle pages: main -> info -> clock -> agents -> main
             page_ = static_cast<Page>((static_cast<int>(page_) + 1) % 4);
@@ -559,42 +651,10 @@ void loop() {
             cyclePetState();
             break;
         case PetButton::B1_VERY_LONG:
-            // Power off: light sleep (keeps USB alive, no reset; ~1mA draw).
-            // Drop GPIO15 (PWR_EN) first so the LCD AND the green power LED go
-            // dark; wake = press Button 1 or 2.
-            {
-                tft.fillScreen(ST77XX_BLACK);
-                drawChineseText(tft, 10, 56, "正在关机...", ST77XX_YELLOW, 200);
-                tft.setFont(&fonts::Font0);
-                tft.setTextSize(1);
-                tft.setTextColor(ST77XX_WHITE);
-                tft.setCursor(10, 78);
-                tft.print("release to power off");
-                tft.setCursor(10, 92);
-                tft.print("press a button to wake");
-                const uint32_t t0 = millis();
-                while (digitalRead(0) == LOW && millis() - t0 < 10000) delay(20);
-                ledcWrite(0, 0);   // backlight off
-#if defined(PIN_LCD_POWER_ON)
-                digitalWrite(PIN_LCD_POWER_ON, LOW);   // cut LCD power + green LED
-#endif
-                gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
-                gpio_wakeup_enable(GPIO_NUM_14, GPIO_INTR_LOW_LEVEL);
-                esp_sleep_enable_gpio_wakeup();
-                Serial.println("[PET] light sleep");
-                esp_light_sleep_start();   // returns when a button is pressed
-                Serial.println("[PET] woken");
-#if defined(PIN_LCD_POWER_ON)
-                digitalWrite(PIN_LCD_POWER_ON, HIGH);   // re-power the LCD rail
-                delay(100);
-                tft.init();               // ST7789 was power-cycled: re-init
-                tft.setRotation(1);
-#endif
-                ledcWrite(0, kBrightnessLevels[backlightLevel_ - 1]);
-                backlightOn_ = true;
-                lastShownState = static_cast<PetState>(0xFF);
-                buttons.reinit();   // ignore the wake button's press
-            }
+            // Power off: light sleep. If USB is plugged and the battery isn't
+            // full, keep GPIO15 HIGH so charging continues while asleep;
+            // otherwise drop it for maximum savings. Wake = Button 1 or 2.
+            enterLightSleep(battery.usbPresent() && battery.charging());
             break;
         case PetButton::B2_SHORT:
             backlightOn_ = !backlightOn_;

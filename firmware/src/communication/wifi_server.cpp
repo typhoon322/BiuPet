@@ -123,6 +123,24 @@ void WifiServer::connectSta() {
 void WifiServer::begin() {
     loadCredentials();
 
+    // Log WiFi events so a failing connection is diagnosable over serial:
+    // reason 201 = no AP found (e.g. 5GHz-only network), 202 = wrong password,
+    // 203 = AP not found on first probe, 15/16 = 4-way handshake timeout.
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        if (event == ARDUINO_EVENT_WIFI_STA_CONNECTED) {
+            Serial.printf("[WIFI] STA connected to %s\n", WiFi.SSID().c_str());
+        } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+            Serial.printf("[WIFI] STA disconnect reason=%d (201=no AP 202=wrong pw)\n",
+                          (int)info.wifi_sta_disconnected.reason);
+        }
+    }, WiFiEvent_t(ARDUINO_EVENT_WIFI_STA_CONNECTED));
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+            Serial.printf("[WIFI] STA disconnect reason=%d (201=no AP 202=wrong pw)\n",
+                          (int)info.wifi_sta_disconnected.reason);
+        }
+    }, WiFiEvent_t(ARDUINO_EVENT_WIFI_STA_DISCONNECTED));
+
     // AP always on + STA in the background rotating through saved networks.
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(AP_SSID, AP_PASS);
@@ -136,6 +154,8 @@ void WifiServer::begin() {
     server_.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
     server_.on("/api/wifi", HTTP_GET, [this]() { handleWifiGet(); });
     server_.on("/api/wifi", HTTP_POST, [this]() { handleWifiPost(); });
+    server_.on("/api/settings", HTTP_GET, [this]() { handleSettingsGet(); });
+    server_.on("/api/settings", HTTP_POST, [this]() { handleSettingsPost(); });
     server_.begin();
 }
 
@@ -206,6 +226,11 @@ void WifiServer::handleRoot() {
  <div id="netlist" style="margin-top:12px"></div>
  <div id="msg"></div>
 </div>
+<div class="card"><h2>电源设置</h2>
+ <div class="row"><span>拔电自动休眠</span>
+  <input type="checkbox" id="as" style="width:auto;transform:scale(1.4)"></div>
+ <div id="powmsg" style="margin-top:8px;font-size:13px;color:#3fb950"></div>
+</div>
 <script>
 function q(id){return document.getElementById(id)}
 function fmtUptime(s){s=+s;var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+h+'h '+m+'m'}
@@ -234,6 +259,8 @@ q('wf').onsubmit=function(e){e.preventDefault();
   body:JSON.stringify({ssid:q('s').value,pass:q('p').value})})
  .then(function(r){return r.text()}).then(function(t){q('msg').textContent=t;loadNets();q('p').value=''})};
 loadNets();
+fetch('/api/settings').then(function(r){return r.json()}).then(function(d){q('as').checked=!!d.auto_sleep}).catch(function(){});
+q('as').onchange=function(){fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_sleep:q('as').checked})}).then(function(r){return r.text()}).then(function(t){q('powmsg').textContent=t})};
 </script></body></html>)HTML";
     server_.send(200, "text/html", html);
 }
@@ -290,6 +317,35 @@ void WifiServer::handleStatus() {
     String out;
     serializeJson(doc, out);
     server_.send(200, "application/json", out);
+}
+
+void WifiServer::handleSettingsGet() {
+    JsonDocument doc;
+    Preferences pref;
+    pref.begin("codepet", true);
+    doc["auto_sleep"] = pref.getBool("auto_sleep", true);
+    pref.end();
+    String out;
+    serializeJson(doc, out);
+    server_.send(200, "application/json", out);
+}
+
+void WifiServer::handleSettingsPost() {
+    const String body = server_.arg("plain");
+    JsonDocument doc;
+    if (deserializeJson(doc, body)) {
+        server_.send(400, "text/plain", "bad json");
+        return;
+    }
+    if (doc["auto_sleep"].is<bool>()) {
+        Preferences pref;
+        pref.begin("codepet", false);
+        pref.putBool("auto_sleep", doc["auto_sleep"].as<bool>());
+        pref.end();
+        server_.send(200, "text/plain", "saved");
+    } else {
+        server_.send(400, "text/plain", "auto_sleep required");
+    }
 }
 
 void WifiServer::handleWifiGet() {

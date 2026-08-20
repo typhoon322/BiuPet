@@ -44,4 +44,6 @@ private:
     void handleStatus();
     void handleWifiGet();
     void handleWifiPost();
+    void handleSettingsGet();
+    void handleSettingsPost();
 };
