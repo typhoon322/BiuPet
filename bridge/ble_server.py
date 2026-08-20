@@ -46,6 +46,21 @@ class BleBridge:
         self._pending: asyncio.Queue[dict] = asyncio.Queue()
         self._last_state = "IDLE"
 
+    async def _write(self, char: str, data: bytes, timeout: float = 5.0) -> bool:
+        """Write to a GATT char with a bounded timeout so a half-dead link
+        (connected but unresponsive) can never hang its caller forever."""
+        if self._client is None or not self._client.is_connected or not char:
+            return False
+        try:
+            await asyncio.wait_for(
+                self._client.write_gatt_char(char, data, response=True), timeout)
+            return True
+        except asyncio.TimeoutError:
+            log.warning("BLE write timed out (%s)", char[:8])
+        except Exception as e:
+            log.warning("BLE write failed: %s", e)
+        return False
+
     async def run(self, stop_event: asyncio.Event):
         log.info("BLE bridge started; looking for %s", self.cfg["device"]["name"])
         while not stop_event.is_set():
@@ -90,42 +105,27 @@ class BleBridge:
         if not task or task == self._last_task:
             return
         self._last_task = task
-        if self._client is None or not self._client.is_connected or not self._task_char:
-            return
-        try:
-            data = _trim_utf8(task.encode("utf-8")[:63])
-            await self._client.write_gatt_char(self._task_char, data, response=True)
+        data = _trim_utf8(task.encode("utf-8")[:63])
+        if await self._write(self._task_char, data):
             log.info("task sent: %s", task)
-        except Exception as e:
-            log.warning("task send failed: %s", e)
 
     async def send_usage(self, tokens: int):
         """Send today's token usage over the command char without changing state."""
         if tokens == self._last_usage:
             return
         self._last_usage = tokens
-        if self._client is None or not self._client.is_connected or not self._command_char:
-            return
-        try:
-            msg = f"USAGE {tokens}".encode("utf-8")[:63]
-            await self._client.write_gatt_char(self._command_char, msg, response=True)
+        msg = f"USAGE {tokens}".encode("utf-8")[:63]
+        if await self._write(self._command_char, msg):
             log.info("usage sent: %s tokens", tokens)
-        except Exception as e:
-            log.warning("usage send failed: %s", e)
 
     async def send_balance(self, value: str):
         """Send the DeepSeek balance + wall-clock refresh time over the command
         char (e.g. "BAL 75.78 14:02:11"). Sent on every fetch (~30s) so the
         pet can show when the balance was last refreshed."""
-        if self._client is None or not self._client.is_connected or not self._command_char:
-            return
-        try:
-            ts = time.strftime("%H:%M:%S")
-            msg = f"BAL {value} {ts}".encode("utf-8")[:63]
-            await self._client.write_gatt_char(self._command_char, msg, response=True)
+        ts = time.strftime("%H:%M:%S")
+        msg = f"BAL {value} {ts}".encode("utf-8")[:63]
+        if await self._write(self._command_char, msg):
             log.info("balance sent: %s @ %s", value, ts)
-        except Exception as e:
-            log.warning("balance send failed: %s", e)
 
     async def send_agents(self, text: str):
         """Send the per-agent status list over the command char
@@ -134,26 +134,19 @@ class BleBridge:
         185-byte ATT MTU, so an 8-agent list (~150 B) fits in one write.
         Dedups per connection (reset on reconnect so a fresh link always gets
         the current list even if the text didn't change)."""
-        if self._client is None or not self._client.is_connected or not self._command_char:
-            return
         if text == self._last_agents:
             return
         self._last_agents = text
-        try:
-            msg = _trim_utf8(f"AGENTS {text}".encode("utf-8")[:180])
-            await self._client.write_gatt_char(self._command_char, msg, response=True)
+        msg = _trim_utf8(f"AGENTS {text}".encode("utf-8")[:180])
+        if await self._write(self._command_char, msg):
             log.info("agents sent: %s", text)
-        except Exception as e:
-            log.warning("agents send failed: %s", e)
 
     async def _send_packet(self, state: dict):
         if self._client is None or not self._client.is_connected:
             return
         ts = int(state.get("timestamp", time.time()))
         progress = state.get("progress", 255)
-        if isinstance(progress, int) and 0 <= progress <= 100:
-            pass
-        else:
+        if not (isinstance(progress, int) and 0 <= progress <= 100):
             progress = 255
         packet = struct.pack(
             "<BBBBBBI",
@@ -165,5 +158,5 @@ class BleBridge:
             state.get("flags", 0),
             ts,
         )
-        await self._client.write_gatt_char(self._state_char, packet, response=True)
-        log.debug("sent state=%s", state.get("state"))
+        if await self._write(self._state_char, packet):
+            log.debug("sent state=%s", state.get("state"))
